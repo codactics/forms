@@ -549,7 +549,7 @@ export function DesignStep({
               }
             >
               <div
-                className="flex h-full w-full items-center overflow-hidden whitespace-nowrap"
+                className="flex h-full w-full items-center whitespace-nowrap"
                 style={textStyleToCss(theme.title)}
               >
                 {formTitle || "Untitled form"}
@@ -594,7 +594,7 @@ export function DesignStep({
                 onChange={(updates) => updateText(text.id, updates)}
               >
                 <div
-                  className="flex h-full w-full items-center overflow-hidden whitespace-nowrap"
+                  className="flex h-full w-full items-center whitespace-nowrap"
                   style={textStyleToCss(text)}
                 >
                   {text.content}

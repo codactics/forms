@@ -35,7 +35,7 @@ export function HeaderPreview({
       )}
 
       <div
-        className="absolute flex items-center overflow-hidden whitespace-nowrap"
+        className="absolute flex items-center whitespace-nowrap"
         style={{
           ...boxStyle({ ...theme.title, height: TITLE_BOX_HEIGHT }),
           ...textStyleToCss(theme.title),
@@ -61,7 +61,7 @@ export function HeaderPreview({
       {theme.texts.map((text) => (
         <div
           key={text.id}
-          className="absolute flex items-center overflow-hidden whitespace-nowrap"
+          className="absolute flex items-center whitespace-nowrap"
           style={{
             ...boxStyle({ ...text, height: TITLE_BOX_HEIGHT }),
             ...textStyleToCss(text),
