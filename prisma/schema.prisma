@@ -1,0 +1,42 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// Control-plane data only: admin accounts and form definitions/routing.
+// Actual submissions and uploaded files are written to the admin's own
+// Google Sheet/Drive at submit time, never stored here.
+model Admin {
+  id                 String   @id @default(cuid())
+  email              String   @unique
+  name               String?
+  image              String?
+  googleRefreshToken String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  forms Form[]
+}
+
+model Form {
+  id                  String   @id @default(cuid())
+  adminId             String
+  admin               Admin    @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  slug                String   @unique
+  title               String
+  status              String   @default("draft") // "draft" | "published"
+  schema              String // JSON-encoded FormField[]
+  theme               String // JSON-encoded FormTheme
+  googleSheetId       String?
+  googleDriveFolderId String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  publishedAt         DateTime?
+}

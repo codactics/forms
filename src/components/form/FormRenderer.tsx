@@ -1,0 +1,981 @@
+"use client";
+
+import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
+import { Image, FileText, Check, CircleCheck, CircleAlert, Star } from "lucide-react";
+import type { FormField, PlayerListColumn, DropdownField } from "@/types/form-builder";
+import type { FormTheme } from "@/types/theme";
+import { initialSubmitState, type SubmitState } from "@/types/submission";
+import { applyOperation, formatComputedResult } from "@/lib/computed";
+import { HeaderPreview } from "@/components/design/HeaderPreview";
+import { MarkdownContent } from "@/components/shared/MarkdownContent";
+import { SignaturePad } from "./SignaturePad";
+
+async function noopSubmitAction(): Promise<SubmitState> {
+  return initialSubmitState;
+}
+
+interface FormSection {
+  title: string | null;
+  description: string;
+  fields: FormField[];
+}
+
+function splitIntoSections(fields: FormField[]): FormSection[] {
+  const sections: FormSection[] = [{ title: null, description: "", fields: [] }];
+  for (const field of fields) {
+    if (field.type === "section-break") {
+      sections.push({
+        title: field.label || "Untitled section",
+        description: field.description,
+        fields: [],
+      });
+    } else {
+      sections[sections.length - 1].fields.push(field);
+    }
+  }
+  const nonEmpty = sections.filter((s) => s.fields.length > 0);
+  return nonEmpty.length > 0 ? nonEmpty : sections;
+}
+
+export function FormRenderer({
+  title,
+  fields,
+  theme,
+  submitAction,
+}: {
+  title: string;
+  fields: FormField[];
+  theme?: FormTheme;
+  submitAction?: (
+    prevState: SubmitState,
+    formData: FormData,
+  ) => Promise<SubmitState>;
+}) {
+  const sections = splitIntoSections(fields);
+  const [step, setStep] = useState(0);
+  const currentStep = Math.min(step, sections.length - 1);
+  const isMultiStep = sections.length > 1;
+  const isLastStep = currentStep === sections.length - 1;
+  const [state, formAction, isPending] = useActionState(
+    submitAction ?? noopSubmitAction,
+    initialSubmitState,
+  );
+
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+      {theme ? (
+        <HeaderPreview theme={theme} title={title} />
+      ) : (
+        <div className="rounded-2xl border-t-4 border-royal-600 bg-white p-6 shadow-sm">
+          <h1 className="text-2xl font-semibold text-royal-950">
+            {title || "Untitled form"}
+          </h1>
+        </div>
+      )}
+
+      {theme?.note && (
+        <div className="rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
+          {theme.note}
+        </div>
+      )}
+
+      {state.status === "success" ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-royal-100 bg-white p-10 text-center shadow-sm">
+          <CircleCheck size={28} className="text-royal-600" />
+          <h2 className="text-lg font-semibold text-royal-950">
+            Response recorded
+          </h2>
+          <p className="max-w-sm text-sm text-royal-500">
+            Thanks — your submission has been saved.
+          </p>
+        </div>
+      ) : fields.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-royal-200 bg-white p-8 text-center text-sm text-royal-400">
+          This form doesn't have any fields yet.
+        </p>
+      ) : (
+        <form className="flex flex-col gap-4" action={formAction}>
+          {state.status === "error" && state.message && (
+            <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <CircleAlert size={16} className="shrink-0" />
+              {state.message}
+            </div>
+          )}
+
+          {isMultiStep && (
+            <div className="flex items-center justify-center gap-2 pb-1">
+              {sections.map((_, i) => (
+                <span
+                  key={i}
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    i === currentStep ? "bg-royal-600" : "bg-royal-200"
+                  }`}
+                />
+              ))}
+            </div>
+          )}
+
+          {sections.map((section, i) => (
+            <div
+              key={i}
+              className={i === currentStep ? "flex flex-col gap-4" : "hidden"}
+            >
+              {section.title && (
+                <div>
+                  <h2 className="text-lg font-semibold text-royal-950">
+                    {section.title}
+                  </h2>
+                  {section.description && (
+                    <p className="mt-1 text-sm text-royal-500">
+                      {section.description}
+                    </p>
+                  )}
+                </div>
+              )}
+              {section.fields.map((field) => (
+                <FieldRenderer key={field.id} field={field} />
+              ))}
+            </div>
+          ))}
+
+          <div className="mt-2 flex items-center justify-between">
+            {isMultiStep && !isLastStep ? (
+              <>
+                <button
+                  type="button"
+                  disabled={currentStep === 0}
+                  onClick={() => setStep((s) => Math.max(0, s - 1))}
+                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setStep((s) => Math.min(sections.length - 1, s + 1))
+                  }
+                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
+                >
+                  Next
+                </button>
+              </>
+            ) : isMultiStep ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setStep((s) => Math.max(0, s - 1))}
+                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPending ? "Submitting…" : "Submit"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPending ? "Submitting…" : "Submit"}
+                </button>
+                <button
+                  type="reset"
+                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
+
+          {isMultiStep && (
+            <button
+              type="reset"
+              onClick={() => setStep(0)}
+              className="self-center text-xs font-medium text-royal-400 hover:text-royal-600 hover:underline"
+            >
+              Clear form
+            </button>
+          )}
+        </form>
+      )}
+    </div>
+  );
+}
+
+function FieldCard({
+  label,
+  required,
+  children,
+}: {
+  label: string;
+  required: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-royal-100 bg-white p-5 shadow-sm">
+      <label className="mb-2 block text-sm font-medium text-royal-950">
+        {label || "Untitled question"}
+        {required && <span className="ml-0.5 text-red-500">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function FieldRenderer({ field }: { field: FormField }) {
+  switch (field.type) {
+    case "short-text":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            name={field.id}
+            required={field.required}
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "long-text":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <textarea
+            name={field.id}
+            required={field.required}
+            rows={3}
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "number":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            type="number"
+            name={field.id}
+            required={field.required}
+            min={field.min}
+            max={field.max}
+            className="w-40 rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "email":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            type="email"
+            name={field.id}
+            required={field.required}
+            placeholder="name@example.com"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "phone":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            type="tel"
+            name={field.id}
+            required={field.required}
+            placeholder="+1 555 000 1234"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "date":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            type="date"
+            name={field.id}
+            required={field.required}
+            min={field.min}
+            max={field.max}
+            className="w-48 rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
+    case "photo":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <PhotoUploadInput name={field.id} required={field.required} />
+        </FieldCard>
+      );
+    case "document":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <DocumentUploadInput name={field.id} required={field.required} />
+        </FieldCard>
+      );
+    case "signature":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <SignaturePad name={field.id} />
+        </FieldCard>
+      );
+    case "dropdown":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <DropdownFieldInput field={field} />
+        </FieldCard>
+      );
+    case "multiple-choice":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <div className="flex flex-col gap-2">
+            {field.options.map((option, i) => (
+              <label
+                key={i}
+                className="flex items-center gap-2 text-sm text-royal-800"
+              >
+                <input
+                  type="radio"
+                  name={field.id}
+                  value={option}
+                  required={field.required}
+                />
+                {option}
+              </label>
+            ))}
+          </div>
+        </FieldCard>
+      );
+    case "checkbox":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 text-sm text-royal-800">
+              <input type="radio" name={field.id} required={field.required} />
+              {field.yesLabel}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-royal-800">
+              <input type="radio" name={field.id} />
+              {field.noLabel}
+            </label>
+          </div>
+        </FieldCard>
+      );
+    case "rating":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          {field.style === "stars" ? (
+            <StarRatingInput name={field.id} max={field.max} />
+          ) : (
+            <SliderRatingInput
+              name={field.id}
+              min={field.min}
+              max={field.max}
+            />
+          )}
+        </FieldCard>
+      );
+    case "computed":
+      return field.showOnForm ? (
+        <FieldCard label={field.label} required={false}>
+          <ComputedFieldDisplay field={field} />
+        </FieldCard>
+      ) : (
+        <div className="hidden">
+          <ComputedFieldDisplay field={field} />
+        </div>
+      );
+    case "player-list":
+      return <PlayerListRenderer field={field} />;
+    case "static-text":
+      return field.content ? (
+        <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-5">
+          <MarkdownContent content={field.content} />
+        </div>
+      ) : null;
+    case "section-break":
+      return null;
+  }
+}
+
+function StarRatingInput({ name, max }: { name: string; max: number }) {
+  const count = Math.max(1, Math.min(max, 10));
+  const [value, setValue] = useState(0);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const display = hovered ?? value;
+  const hiddenRef = useRef<HTMLInputElement>(null);
+
+  // The hidden input's value is set by React, not real typing, so it never
+  // fires a native "input" event on its own — dispatch one manually so any
+  // Computed field listening for changes on this field (by name) still
+  // reacts, the same way it would to a real text/range input.
+  useEffect(() => {
+    hiddenRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
+  }, [value]);
+
+  // A native form reset only resets real HTML controls — it has no idea
+  // this React state exists, so without this the stars would stay filled
+  // in after clicking "Clear."
+  useEffect(() => {
+    const formEl = hiddenRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => setValue(0);
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        ref={hiddenRef}
+        type="hidden"
+        name={name}
+        value={value || ""}
+        readOnly
+      />
+      {Array.from({ length: count }).map((_, i) => {
+        const starValue = i + 1;
+        const filled = starValue <= display;
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={() => setValue(starValue === value ? 0 : starValue)}
+            onMouseEnter={() => setHovered(starValue)}
+            onMouseLeave={() => setHovered(null)}
+            className={`transition-colors ${filled ? "text-royal-500" : "text-royal-300"} hover:text-royal-500`}
+            aria-label={`${starValue} out of ${count}`}
+          >
+            <Star size={24} fill={filled ? "currentColor" : "none"} />
+          </button>
+        );
+      })}
+      {value > 0 && (
+        <span className="ml-2 text-xs text-royal-400">
+          {value} / {count}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function SliderRatingInput({
+  name,
+  min,
+  max,
+}: {
+  name: string;
+  min: number;
+  max: number;
+}) {
+  const [value, setValue] = useState(min);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const formEl = inputRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => setValue(min);
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, [min]);
+
+  return (
+    <div className="flex items-center gap-3">
+      <input
+        ref={inputRef}
+        type="range"
+        name={name}
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => setValue(Number(e.target.value))}
+        className="w-full max-w-xs accent-royal-600"
+      />
+      <span className="w-10 text-center text-sm font-medium text-royal-700">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ComputedFieldDisplay({
+  field,
+}: {
+  field: Extract<FormField, { type: "computed" }>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const hiddenRef = useRef<HTMLInputElement>(null);
+  const [result, setResult] = useState(0);
+
+  useEffect(() => {
+    const formEl = containerRef.current?.closest("form");
+    if (!formEl) return;
+
+    function recompute() {
+      const values = field.terms.map((term) => {
+        if (term.type === "constant") return term.value;
+        const el = formEl!.querySelector(
+          `[name="${term.fieldId}"]`,
+        ) as HTMLInputElement | null;
+        const num = el ? parseFloat(el.value) : NaN;
+        return Number.isFinite(num) ? num : 0;
+      });
+      setResult(applyOperation(field.operation, values));
+    }
+
+    recompute();
+    const listenTo = field.terms
+      .filter((t) => t.type === "field")
+      .map((t) => formEl!.querySelector(`[name="${t.fieldId}"]`))
+      .filter((el): el is Element => el !== null);
+    listenTo.forEach((el) => el.addEventListener("input", recompute));
+
+    // On a native form reset, the referenced controls' values are only
+    // guaranteed to be back at their defaults *after* this event finishes
+    // dispatching — recompute on the next tick rather than reading stale
+    // values synchronously here.
+    function handleFormReset() {
+      setTimeout(recompute, 0);
+    }
+    formEl.addEventListener("reset", handleFormReset);
+
+    return () => {
+      listenTo.forEach((el) => el.removeEventListener("input", recompute));
+      formEl.removeEventListener("reset", handleFormReset);
+    };
+  }, [field]);
+
+  // Propagate to any Computed field chained onto this one, same trick as
+  // the star rating's hidden input.
+  useEffect(() => {
+    hiddenRef.current?.dispatchEvent(new Event("input", { bubbles: true }));
+  }, [result]);
+
+  return (
+    <div ref={containerRef}>
+      <input
+        ref={hiddenRef}
+        type="hidden"
+        name={field.id}
+        value={formatComputedResult(result)}
+        readOnly
+      />
+      <div className="rounded-md border border-royal-200 bg-royal-50/60 px-4 py-3 text-lg font-semibold text-royal-950">
+        {formatComputedResult(result)}
+      </div>
+    </div>
+  );
+}
+
+const PHOTO_MIME_TYPES = ["image/png", "image/jpeg"];
+
+function PhotoUploadInput({
+  required,
+  name,
+}: {
+  required: boolean;
+  name?: string;
+}) {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setFileName(null);
+      setError(null);
+      return;
+    }
+    if (!PHOTO_MIME_TYPES.includes(file.type)) {
+      setError("Please upload a PNG or JPEG photo.");
+      setFileName(null);
+      e.target.value = "";
+      return;
+    }
+    setError(null);
+    setFileName(file.name);
+  }
+
+  // The browser does clear the file input itself on reset, but our
+  // "Uploaded: ..." label is separate React state that doesn't know that
+  // happened unless we're told explicitly.
+  useEffect(() => {
+    const formEl = inputRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => {
+      setFileName(null);
+      setError(null);
+    };
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-royal-300 bg-royal-50/40 px-4 py-6 text-royal-500 transition-colors hover:bg-royal-50">
+        <Image size={18} />
+        <span className="text-sm">
+          {fileName ? "Click to replace photo" : "Click to upload a photo"}
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          name={name}
+          accept="image/png,image/jpeg"
+          required={required}
+          onChange={handleChange}
+          className="hidden"
+        />
+      </label>
+      {fileName && (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-green-600">
+          <Check size={12} />
+          Uploaded: {fileName}
+        </p>
+      )}
+      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+    </div>
+  );
+}
+
+function DocumentUploadInput({
+  required,
+  name,
+}: {
+  required: boolean;
+  name?: string;
+}) {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setFileName(e.target.files?.[0]?.name ?? null);
+  }
+
+  useEffect(() => {
+    const formEl = inputRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => setFileName(null);
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex cursor-pointer items-center gap-2 rounded-md border border-dashed border-royal-300 bg-royal-50/40 px-4 py-6 text-royal-500 transition-colors hover:bg-royal-50">
+        <FileText size={18} />
+        <span className="text-sm">
+          {fileName ? "Click to replace document" : "Click to upload a document"}
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          name={name}
+          accept=".pdf,.doc,.docx"
+          required={required}
+          onChange={handleChange}
+          className="hidden"
+        />
+      </label>
+      {fileName && (
+        <p className="flex items-center gap-1.5 text-xs font-medium text-green-600">
+          <Check size={12} />
+          Uploaded: {fileName}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const DROPDOWN_OTHER_VALUE = "__other__";
+
+function DropdownFieldInput({ field }: { field: DropdownField }) {
+  const [selected, setSelected] = useState<string[]>([]);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const showOther = field.allowOther && selected.includes(DROPDOWN_OTHER_VALUE);
+
+  useEffect(() => {
+    const formEl = containerRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => setSelected([]);
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex flex-col gap-2">
+      {field.allowMultiple ? (
+        <div className="flex flex-col gap-2">
+          {field.options.map((option, i) => (
+            <label
+              key={i}
+              className="flex items-center gap-2 text-sm text-royal-800"
+            >
+              <input
+                type="checkbox"
+                name={field.id}
+                value={option}
+                className="h-4 w-4 rounded border-royal-300"
+                onChange={(e) =>
+                  setSelected((prev) =>
+                    e.target.checked
+                      ? [...prev, option]
+                      : prev.filter((v) => v !== option),
+                  )
+                }
+              />
+              {option}
+            </label>
+          ))}
+          {field.allowOther && (
+            <label className="flex items-center gap-2 text-sm text-royal-800">
+              <input
+                type="checkbox"
+                name={field.id}
+                value={DROPDOWN_OTHER_VALUE}
+                className="h-4 w-4 rounded border-royal-300"
+                onChange={(e) =>
+                  setSelected((prev) =>
+                    e.target.checked
+                      ? [...prev, DROPDOWN_OTHER_VALUE]
+                      : prev.filter((v) => v !== DROPDOWN_OTHER_VALUE),
+                  )
+                }
+              />
+              Other
+            </label>
+          )}
+        </div>
+      ) : (
+        <select
+          name={field.id}
+          required={field.required}
+          defaultValue=""
+          className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          onChange={(e) => setSelected(e.target.value ? [e.target.value] : [])}
+        >
+          <option value="" disabled>
+            Select...
+          </option>
+          {field.options.map((option, i) => (
+            <option key={i}>{option}</option>
+          ))}
+          {field.allowOther && (
+            <option value={DROPDOWN_OTHER_VALUE}>Other</option>
+          )}
+        </select>
+      )}
+      {showOther && (
+        <input
+          type="text"
+          name={`${field.id}__other`}
+          required={field.required}
+          placeholder="Please specify"
+          className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      )}
+    </div>
+  );
+}
+
+function CompactPhotoUpload({
+  name,
+  required,
+}: {
+  name: string;
+  required: boolean;
+}) {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setFileName(null);
+      setError(null);
+      return;
+    }
+    if (!PHOTO_MIME_TYPES.includes(file.type)) {
+      setError("PNG or JPEG only");
+      setFileName(null);
+      e.target.value = "";
+      return;
+    }
+    setError(null);
+    setFileName(file.name);
+  }
+
+  useEffect(() => {
+    const formEl = inputRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => {
+      setFileName(null);
+      setError(null);
+    };
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div className="flex flex-col gap-1">
+      <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-royal-300 bg-royal-50/40 px-2.5 py-1.5 text-royal-500 transition-colors hover:bg-royal-50">
+        <Image size={14} />
+        <span className="max-w-[90px] truncate text-xs">
+          {fileName ?? "Upload"}
+        </span>
+        <input
+          ref={inputRef}
+          type="file"
+          name={name}
+          accept="image/png,image/jpeg"
+          required={required}
+          onChange={handleChange}
+          className="hidden"
+        />
+      </label>
+      {error && <span className="text-[11px] text-red-600">{error}</span>}
+    </div>
+  );
+}
+
+function PlayerListRenderer({
+  field,
+}: {
+  field: Extract<FormField, { type: "player-list" }>;
+}) {
+  return (
+    <div className="rounded-xl border border-royal-100 bg-white p-5 shadow-sm">
+      <p className="mb-4 text-sm font-medium text-royal-950">
+        {field.label || "Untitled question"}
+        {field.required && <span className="ml-0.5 text-red-500">*</span>}
+      </p>
+
+      {field.columns.length === 0 ? (
+        <p className="text-sm text-royal-400">No fields configured.</p>
+      ) : field.layout === "row" ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max border-collapse text-sm">
+            <thead>
+              <tr className="bg-royal-50">
+                {field.columns.map((column) => (
+                  <th
+                    key={column.id}
+                    className="whitespace-nowrap px-3 py-2 text-left font-medium text-royal-700"
+                  >
+                    {column.label}
+                    {column.required && (
+                      <span className="ml-0.5 text-red-500">*</span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: field.playerCount }).map((_, i) => (
+                <tr key={i} className="border-t border-royal-100">
+                  {field.columns.map((column) => (
+                    <td key={column.id} className="px-3 py-2">
+                      <PlayerColumnInput
+                        column={column}
+                        name={`player-${i}-${column.id}`}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {Array.from({ length: field.playerCount }).map((_, i) => (
+            <div key={i} className="rounded-lg border border-royal-100 p-3">
+              <p className="mb-2 text-xs font-semibold text-royal-500">
+                Entry {i + 1}
+              </p>
+              <div className="flex flex-col gap-2">
+                {field.columns.map((column) => (
+                  <div key={column.id} className="flex flex-col gap-1">
+                    <label className="text-xs font-medium text-royal-600">
+                      {column.label}
+                      {column.required && (
+                        <span className="ml-0.5 text-red-500">*</span>
+                      )}
+                    </label>
+                    <PlayerColumnInput
+                      column={column}
+                      name={`player-${i}-${column.id}`}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlayerColumnInput({
+  column,
+  name,
+}: {
+  column: PlayerListColumn;
+  name: string;
+}) {
+  switch (column.type) {
+    case "short-text":
+      return (
+        <input
+          name={name}
+          required={column.required}
+          className="w-full min-w-[120px] rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      );
+    case "number":
+      return (
+        <input
+          type="number"
+          name={name}
+          required={column.required}
+          className="w-24 rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      );
+    case "dropdown":
+      return (
+        <select
+          name={name}
+          required={column.required}
+          defaultValue=""
+          className="w-full min-w-[120px] rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        >
+          <option value="" disabled>
+            Select...
+          </option>
+          {(column.options ?? []).map((option, i) => (
+            <option key={i}>{option}</option>
+          ))}
+        </select>
+      );
+    case "checkbox":
+      return (
+        <div className="flex items-center gap-4 text-sm text-royal-800">
+          <label className="flex items-center gap-1.5">
+            <input type="radio" name={name} required={column.required} />
+            Yes
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" name={name} />
+            No
+          </label>
+        </div>
+      );
+    case "photo":
+      return <CompactPhotoUpload name={name} required={column.required} />;
+  }
+}
