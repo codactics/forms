@@ -16,6 +16,7 @@ import {
   type TextElement,
 } from "@/types/theme";
 import { checkTitleAvailability } from "@/lib/form-actions";
+import { useElementWidth } from "@/hooks/useElementWidth";
 import { DraggableBox } from "./DraggableBox";
 import { HeaderPreview } from "./HeaderPreview";
 import { PageBackground } from "./PageBackground";
@@ -35,7 +36,10 @@ export function DesignStep({
   onContinue: () => void;
   formId?: string | null;
 }) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const wrapperWidth = useElementWidth(wrapperRef);
+  const canvasScale = wrapperWidth > 0 ? wrapperWidth / CANVAS_WIDTH : 1;
   const logoInputRef = useRef<HTMLInputElement>(null);
   const bgImageInputRef = useRef<HTMLInputElement>(null);
   const [titleWarning, setTitleWarning] = useState<string | null>(null);
@@ -498,11 +502,21 @@ export function DesignStep({
             Editor — drag elements to position them
           </p>
           <div
-            ref={canvasRef}
+            ref={wrapperRef}
             className="relative w-full overflow-hidden rounded-2xl border border-royal-200 shadow-sm"
             style={{
               aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
               backgroundColor: theme.headerBackgroundColor,
+            }}
+          >
+          <div
+            ref={canvasRef}
+            className="absolute top-0 left-0"
+            style={{
+              width: CANVAS_WIDTH,
+              height: CANVAS_HEIGHT,
+              transform: `scale(${canvasScale})`,
+              transformOrigin: "top left",
             }}
           >
             <DraggableBox
@@ -601,6 +615,7 @@ export function DesignStep({
                 </div>
               </DraggableBox>
             ))}
+          </div>
           </div>
           <p className="mt-2 text-center text-xs text-royal-400">
             Drag any element to reposition it. Drag an image's corner handle
