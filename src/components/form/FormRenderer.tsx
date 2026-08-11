@@ -74,7 +74,7 @@ export function FormRenderer({
       )}
 
       {theme?.note && (
-        <div className="rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
+        <div className="whitespace-pre-wrap rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
           {theme.note}
         </div>
       )}

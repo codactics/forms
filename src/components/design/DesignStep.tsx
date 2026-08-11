@@ -479,7 +479,7 @@ export function DesignStep({
             onChange={(e) => onThemeChange({ ...theme, note: e.target.value })}
             rows={3}
             placeholder="e.g. Please read the tournament rules before registering."
-            className="w-full rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+            className="w-full resize-y rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
           />
         </div>
 
@@ -616,7 +616,7 @@ export function DesignStep({
         </div>
 
         {theme.note && (
-          <div className="rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
+          <div className="whitespace-pre-wrap rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
             {theme.note}
           </div>
         )}
