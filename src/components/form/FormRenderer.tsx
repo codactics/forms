@@ -7,7 +7,7 @@ import type { FormTheme } from "@/types/theme";
 import { initialSubmitState, type SubmitState } from "@/types/submission";
 import { applyOperation, formatComputedResult } from "@/lib/computed";
 import { HeaderPreview } from "@/components/design/HeaderPreview";
-import { MarkdownContent } from "@/components/shared/MarkdownContent";
+import { MarkdownContent, InlineMarkdown } from "@/components/shared/MarkdownContent";
 import { SignaturePad } from "./SignaturePad";
 
 async function noopSubmitAction(): Promise<SubmitState> {
@@ -17,6 +17,7 @@ async function noopSubmitAction(): Promise<SubmitState> {
 interface FormSection {
   title: string | null;
   description: string;
+  color?: string;
   fields: FormField[];
 }
 
@@ -27,6 +28,7 @@ function splitIntoSections(fields: FormField[]): FormSection[] {
       sections.push({
         title: field.label || "Untitled section",
         description: field.description,
+        color: field.color,
         fields: [],
       });
     } else {
@@ -35,6 +37,143 @@ function splitIntoSections(fields: FormField[]): FormSection[] {
   }
   const nonEmpty = sections.filter((s) => s.fields.length > 0);
   return nonEmpty.length > 0 ? nonEmpty : sections;
+}
+
+// A structured (not React-specific) representation of one answer's value,
+// so the exact same data can drive both the on-screen review card and the
+// PDF export without keeping two separate extraction passes in sync.
+type ReviewValue =
+  | { kind: "text"; text: string }
+  | { kind: "image"; dataUrl: string; alt: string }
+  | { kind: "rows"; entries: { label: string; value: string }[][] };
+
+interface ReviewItem {
+  id: string;
+  label: string;
+  value: ReviewValue;
+}
+
+interface ReviewSection {
+  title: string | null;
+  items: ReviewItem[];
+}
+
+function reviewPlayerListRows(
+  field: Extract<FormField, { type: "player-list" }>,
+  formData: FormData,
+) {
+  const rows: { label: string; value: string }[][] = [];
+  for (let i = 0; i < field.playerCount; i++) {
+    const row = field.columns.map((column) => {
+      const key = `player-${i}-${column.id}`;
+      if (column.type === "photo") {
+        const file = formData.get(key);
+        return {
+          label: column.label,
+          value: file instanceof File && file.size > 0 ? file.name : "",
+        };
+      }
+      return { label: column.label, value: String(formData.get(key) ?? "") };
+    });
+    if (row.some((c) => c.value)) rows.push(row);
+  }
+  return rows;
+}
+
+function reviewValueForField(field: FormField, formData: FormData): ReviewValue {
+  switch (field.type) {
+    case "dropdown": {
+      const otherText = String(formData.get(`${field.id}__other`) ?? "");
+      if (field.allowMultiple) {
+        const resolved = formData
+          .getAll(field.id)
+          .map(String)
+          .map((v) => (v === "__other__" ? otherText : v))
+          .filter(Boolean);
+        return { kind: "text", text: resolved.length ? resolved.join(", ") : "—" };
+      }
+      const selected = String(formData.get(field.id) ?? "");
+      const resolved = selected === "__other__" ? otherText : selected;
+      return { kind: "text", text: resolved || "—" };
+    }
+    case "photo":
+    case "document": {
+      const file = formData.get(field.id);
+      return {
+        kind: "text",
+        text: file instanceof File && file.size > 0 ? file.name : "No file uploaded",
+      };
+    }
+    case "signature": {
+      const raw = formData.get(field.id);
+      const dataUrl = typeof raw === "string" ? raw : "";
+      return dataUrl
+        ? { kind: "image", dataUrl, alt: "Signature" }
+        : { kind: "text", text: "Not signed" };
+    }
+    default:
+      return { kind: "text", text: String(formData.get(field.id) ?? "") || "—" };
+  }
+}
+
+function reviewValueNode(value: ReviewValue): ReactNode {
+  switch (value.kind) {
+    case "text":
+      return value.text;
+    case "image":
+      return (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={value.dataUrl}
+          alt={value.alt}
+          className="h-16 rounded border border-royal-100 bg-white"
+        />
+      );
+    case "rows":
+      return value.entries.length === 0 ? (
+        "No entries"
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {value.entries.map((row, i) => (
+            <div key={i} className="text-xs text-royal-700">
+              <span className="font-medium text-royal-500">Entry {i + 1}: </span>
+              {row.map((c) => `${c.label}: ${c.value || "—"}`).join(", ")}
+            </div>
+          ))}
+        </div>
+      );
+  }
+}
+
+function buildReviewSections(
+  sections: FormSection[],
+  formData: FormData,
+): ReviewSection[] {
+  return sections
+    .map((section) => {
+      const items: ReviewItem[] = [];
+      for (const field of section.fields) {
+        if (field.type === "static-text" || field.type === "section-break") {
+          continue;
+        }
+        if (field.type === "computed" && !field.showOnForm) continue;
+        if (field.type === "player-list") {
+          items.push({
+            id: field.id,
+            label: field.label || "Untitled question",
+            value: { kind: "rows", entries: reviewPlayerListRows(field, formData) },
+          });
+          continue;
+        }
+        items.push({
+          id: field.id,
+          label: field.label || "Untitled question",
+          value: reviewValueForField(field, formData),
+        });
+      }
+      return { title: section.title, items };
+    })
+    .filter((s) => s.items.length > 0);
 }
 
 export function FormRenderer({
@@ -56,10 +195,189 @@ export function FormRenderer({
   const currentStep = Math.min(step, sections.length - 1);
   const isMultiStep = sections.length > 1;
   const isLastStep = currentStep === sections.length - 1;
+  const formRef = useRef<HTMLFormElement>(null);
+  const [showReview, setShowReview] = useState(false);
+  const [reviewSections, setReviewSections] = useState<ReviewSection[]>([]);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  // Guards against a fast reflexive second click landing on the button
+  // that just replaced whatever was in that same screen spot a moment
+  // earlier (Next → Review, or Review → Done) — without this, that click
+  // could skip straight past the review screen the user hasn't seen yet.
+  const [justEnteredReview, setJustEnteredReview] = useState(false);
   const [state, formAction, isPending] = useActionState(
     submitAction ?? noopSubmitAction,
     initialSubmitState,
   );
+
+  function tryEnterReview() {
+    const formEl = formRef.current;
+    if (!formEl || !formEl.reportValidity()) return;
+    setReviewSections(buildReviewSections(sections, new FormData(formEl)));
+    setShowReview(true);
+    setJustEnteredReview(true);
+    window.setTimeout(() => setJustEnteredReview(false), 400);
+  }
+
+  async function downloadReviewAsPdf() {
+    if (downloadingPdf) return;
+    setDownloadingPdf(true);
+    try {
+      const { jsPDF, GState } = await import("jspdf");
+      const pdf = new jsPDF({ unit: "pt", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 48;
+      const contentWidth = pageWidth - margin * 2;
+      const headerHeight = 46;
+      const bottomLimit = pageHeight - margin;
+      let y = margin + headerHeight;
+
+      // Admin's own form logo if they set one, otherwise fall back to the
+      // Codactis logo — fetched as a data URL since jsPDF can't reference
+      // a plain file path.
+      const watermarkDataUrl =
+        theme?.logo.dataUrl ||
+        (await fetch("/logo/codactics.png")
+          .then((res) => res.blob())
+          .then(
+            (blob) =>
+              new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result as string);
+                reader.onerror = reject;
+                reader.readAsDataURL(blob);
+              }),
+          )
+          .catch(() => null));
+
+      // jsPDF's built-in fonts don't reliably render an em dash.
+      const pdfSafe = (text: string) => text.replace(/—/g, "-");
+
+      function ensureSpace(needed: number) {
+        if (y + needed > bottomLimit) {
+          pdf.addPage();
+          y = margin + headerHeight;
+        }
+      }
+
+      function writeLines(text: string, size: number, color: number) {
+        pdf.setFontSize(size);
+        pdf.setTextColor(color);
+        const lines = pdf.splitTextToSize(pdfSafe(text), contentWidth) as string[];
+        for (const line of lines) {
+          ensureSpace(size + 4);
+          pdf.text(line, margin, y);
+          y += size + 4;
+        }
+      }
+
+      for (const section of reviewSections) {
+        if (section.title) {
+          ensureSpace(30);
+          pdf.setFont("helvetica", "bold");
+          writeLines(section.title, 13, 20);
+          pdf.setFont("helvetica", "normal");
+          y += 4;
+        }
+
+        for (const item of section.items) {
+          ensureSpace(28);
+          pdf.setFont("helvetica", "bold");
+          writeLines(item.label, 9, 110);
+          pdf.setFont("helvetica", "normal");
+
+          if (item.value.kind === "text") {
+            writeLines(item.value.text, 11, 20);
+          } else if (item.value.kind === "image") {
+            try {
+              const props = pdf.getImageProperties(item.value.dataUrl);
+              const imgWidth = 140;
+              const imgHeight = (props.height * imgWidth) / props.width;
+              ensureSpace(imgHeight);
+              pdf.addImage(item.value.dataUrl, margin, y, imgWidth, imgHeight);
+              y += imgHeight + 4;
+            } catch {
+              writeLines("Signed", 11, 20);
+            }
+          } else {
+            if (item.value.entries.length === 0) {
+              writeLines("No entries", 11, 20);
+            } else {
+              item.value.entries.forEach((row, i) => {
+                const line = `Entry ${i + 1}: ${row
+                  .map((c) => `${c.label}: ${c.value || "—"}`)
+                  .join(", ")}`;
+                writeLines(line, 10, 20);
+              });
+            }
+          }
+          y += 8;
+        }
+        y += 6;
+      }
+
+      // Applied per-page after all content is written, since pages are
+      // only created on demand above and we don't know the final count
+      // (or want a header/watermark/footer on every one of them) until now.
+      const downloadedAt = `Downloaded ${new Date().toLocaleString()}`;
+      const totalPages = pdf.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        pdf.setPage(p);
+
+        if (watermarkDataUrl) {
+          try {
+            const props = pdf.getImageProperties(watermarkDataUrl);
+            const maxDim = 220;
+            let wmWidth = maxDim;
+            let wmHeight = (props.height * wmWidth) / props.width;
+            if (wmHeight > maxDim) {
+              wmHeight = maxDim;
+              wmWidth = (props.width * wmHeight) / props.height;
+            }
+            pdf.saveGraphicsState();
+            pdf.setGState(new GState({ opacity: 0.12 }));
+            pdf.addImage(
+              watermarkDataUrl,
+              (pageWidth - wmWidth) / 2,
+              (pageHeight - wmHeight) / 2,
+              wmWidth,
+              wmHeight,
+            );
+            pdf.restoreGraphicsState();
+          } catch (err) {
+            console.error("PDF watermark failed to draw", err);
+          }
+        }
+
+        pdf.setFont("helvetica", "bold");
+        pdf.setFontSize(14);
+        pdf.setTextColor(20);
+        pdf.text(title || "Untitled form", margin, margin);
+        pdf.setDrawColor(180);
+        pdf.setLineWidth(1);
+        pdf.line(margin, margin + 10, pageWidth - margin, margin + 10);
+
+        pdf.setFont("helvetica", "normal");
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(90);
+        pdf.text(downloadedAt, margin, pageHeight - 32);
+        pdf.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 32, {
+          align: "right",
+        });
+        pdf.text(
+          "Developed and maintained by CODACTICS  •  http://forms.codactics.com/",
+          pageWidth / 2,
+          pageHeight - 18,
+          { align: "center" },
+        );
+      }
+
+      const safeTitle = (title || "form").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      pdf.save(`${safeTitle}-submission.pdf`);
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
@@ -68,14 +386,14 @@ export function FormRenderer({
       ) : (
         <div className="rounded-2xl border-t-4 border-royal-600 bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-semibold text-royal-950">
-            {title || "Untitled form"}
+            <InlineMarkdown content={title || "Untitled form"} />
           </h1>
         </div>
       )}
 
       {theme?.note && (
-        <div className="whitespace-pre-wrap rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
-          {theme.note}
+        <div className="rounded-xl border border-royal-100 bg-white p-4">
+          <MarkdownContent content={theme.note} />
         </div>
       )}
 
@@ -88,13 +406,21 @@ export function FormRenderer({
           <p className="max-w-sm text-sm text-royal-500">
             Thanks — your submission has been saved.
           </p>
+          <button
+            type="button"
+            disabled={downloadingPdf}
+            onClick={downloadReviewAsPdf}
+            className="mt-1 rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {downloadingPdf ? "Preparing…" : "Download PDF"}
+          </button>
         </div>
       ) : fields.length === 0 ? (
         <p className="rounded-xl border border-dashed border-royal-200 bg-white p-8 text-center text-sm text-royal-400">
           This form doesn't have any fields yet.
         </p>
       ) : (
-        <form className="flex flex-col gap-4" action={formAction}>
+        <form ref={formRef} className="flex flex-col gap-4" action={formAction}>
           {state.status === "error" && state.message && (
             <div className="flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               <CircleAlert size={16} className="shrink-0" />
@@ -102,7 +428,7 @@ export function FormRenderer({
             </div>
           )}
 
-          {isMultiStep && (
+          {!showReview && isMultiStep && (
             <div className="flex items-center justify-center gap-2 pb-1">
               {sections.map((_, i) => (
                 <span
@@ -118,17 +444,27 @@ export function FormRenderer({
           {sections.map((section, i) => (
             <div
               key={i}
-              className={i === currentStep ? "flex flex-col gap-4" : "hidden"}
+              className={
+                !showReview && i === currentStep
+                  ? "flex flex-col gap-4"
+                  : "hidden"
+              }
             >
               {section.title && (
                 <div>
-                  <h2 className="text-lg font-semibold text-royal-950">
+                  <h2
+                    className="text-lg font-semibold text-royal-950"
+                    style={section.color ? { color: section.color } : undefined}
+                  >
                     {section.title}
                   </h2>
                   {section.description && (
-                    <p className="mt-1 text-sm text-royal-500">
-                      {section.description}
-                    </p>
+                    <div className="mt-1">
+                      <MarkdownContent
+                        content={section.description}
+                        color={section.color}
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -138,64 +474,122 @@ export function FormRenderer({
             </div>
           ))}
 
-          <div className="mt-2 flex items-center justify-between">
-            {isMultiStep && !isLastStep ? (
-              <>
-                <button
-                  type="button"
-                  disabled={currentStep === 0}
-                  onClick={() => setStep((s) => Math.max(0, s - 1))}
-                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setStep((s) => Math.min(sections.length - 1, s + 1))
-                  }
-                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
-                >
-                  Next
-                </button>
-              </>
-            ) : isMultiStep ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setStep((s) => Math.max(0, s - 1))}
-                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
-                >
-                  Back
-                </button>
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isPending ? "Submitting…" : "Submit"}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isPending ? "Submitting…" : "Submit"}
-                </button>
-                <button
-                  type="reset"
-                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
-                >
-                  Clear
-                </button>
-              </>
-            )}
-          </div>
+          {showReview && (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-xl border border-royal-100 bg-white p-5 shadow-sm">
+                <h2 className="mb-1 text-lg font-semibold text-royal-950">
+                  Review your answers
+                </h2>
+                <p className="mb-4 text-sm text-royal-500">
+                  Check everything below before finishing. Use Edit to change
+                  anything.
+                </p>
+                <div className="flex flex-col gap-5">
+                  {reviewSections.map((section, i) => (
+                    <div key={i} className="flex flex-col gap-3">
+                      {section.title && (
+                        <h3 className="text-sm font-semibold text-royal-800">
+                          {section.title}
+                        </h3>
+                      )}
+                      {section.items.map((item) => (
+                        <div
+                          key={item.id}
+                          className="border-b border-royal-50 pb-2 last:border-0 last:pb-0"
+                        >
+                          <p className="text-xs font-medium text-royal-500">
+                            {item.label}
+                          </p>
+                          <div className="mt-0.5 text-sm text-royal-950">
+                            {reviewValueNode(item.value)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-          {isMultiStep && (
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowReview(false);
+                    setStep(0);
+                  }}
+                  className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
+                >
+                  Edit
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending || justEnteredReview}
+                  className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isPending ? "Submitting…" : "Done"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!showReview && (
+            <div className="mt-2 flex items-center justify-between">
+              {isMultiStep && !isLastStep ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={currentStep === 0}
+                    onClick={() => setStep((s) => Math.max(0, s - 1))}
+                    className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStep((s) => Math.min(sections.length - 1, s + 1))}
+                    className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
+                  >
+                    Next
+                  </button>
+                </>
+              ) : isMultiStep ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setStep((s) => Math.max(0, s - 1))}
+                    className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
+                  >
+                    Back
+                  </button>
+                  <button
+                    type="button"
+                    onClick={tryEnterReview}
+                    className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
+                  >
+                    Review
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={tryEnterReview}
+                    className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
+                  >
+                    Review
+                  </button>
+                  <button
+                    type="reset"
+                    className="rounded-full border border-royal-200 px-6 py-2.5 text-sm font-medium text-royal-600 transition-colors hover:bg-royal-50"
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {!showReview && isMultiStep && (
             <button
               type="reset"
               onClick={() => setStep(0)}
@@ -290,6 +684,18 @@ function FieldRenderer({ field }: { field: FormField }) {
           />
         </FieldCard>
       );
+    case "link":
+      return (
+        <FieldCard label={field.label} required={field.required}>
+          <input
+            type="url"
+            name={field.id}
+            required={field.required}
+            placeholder="https://instagram.com/yourhandle"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </FieldCard>
+      );
     case "date":
       return (
         <FieldCard label={field.label} required={field.required}>
@@ -353,11 +759,16 @@ function FieldRenderer({ field }: { field: FormField }) {
         <FieldCard label={field.label} required={field.required}>
           <div className="flex gap-6">
             <label className="flex items-center gap-2 text-sm text-royal-800">
-              <input type="radio" name={field.id} required={field.required} />
+              <input
+                type="radio"
+                name={field.id}
+                value={field.yesLabel}
+                required={field.required}
+              />
               {field.yesLabel}
             </label>
             <label className="flex items-center gap-2 text-sm text-royal-800">
-              <input type="radio" name={field.id} />
+              <input type="radio" name={field.id} value={field.noLabel} />
               {field.noLabel}
             </label>
           </div>
@@ -392,7 +803,7 @@ function FieldRenderer({ field }: { field: FormField }) {
     case "static-text":
       return field.content ? (
         <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-5">
-          <MarkdownContent content={field.content} />
+          <MarkdownContent content={field.content} color={field.color} />
         </div>
       ) : null;
     case "section-break":
@@ -966,11 +1377,16 @@ function PlayerColumnInput({
       return (
         <div className="flex items-center gap-4 text-sm text-royal-800">
           <label className="flex items-center gap-1.5">
-            <input type="radio" name={name} required={column.required} />
+            <input
+              type="radio"
+              name={name}
+              value="Yes"
+              required={column.required}
+            />
             Yes
           </label>
           <label className="flex items-center gap-1.5">
-            <input type="radio" name={name} />
+            <input type="radio" name={name} value="No" />
             No
           </label>
         </div>

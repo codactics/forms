@@ -9,6 +9,7 @@ export type FieldType =
   | "static-text"
   | "email"
   | "phone"
+  | "link"
   | "date"
   | "multiple-choice"
   | "document"
@@ -80,6 +81,7 @@ export interface PlayerListField extends FieldBase {
 export interface StaticTextField extends FieldBase {
   type: "static-text";
   content: string;
+  color?: string;
 }
 
 export interface EmailField extends FieldBase {
@@ -88,6 +90,10 @@ export interface EmailField extends FieldBase {
 
 export interface PhoneField extends FieldBase {
   type: "phone";
+}
+
+export interface LinkField extends FieldBase {
+  type: "link";
 }
 
 export interface DateField extends FieldBase {
@@ -112,6 +118,7 @@ export interface SignatureField extends FieldBase {
 export interface SectionBreakField extends FieldBase {
   type: "section-break";
   description: string;
+  color?: string;
 }
 
 export interface RatingField extends FieldBase {
@@ -149,6 +156,7 @@ export type FormField =
   | StaticTextField
   | EmailField
   | PhoneField
+  | LinkField
   | DateField
   | MultipleChoiceField
   | DocumentField

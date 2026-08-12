@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { CANVAS_WIDTH, CANVAS_HEIGHT, TITLE_BOX_HEIGHT, textStyleToCss, type FormTheme } from "@/types/theme";
 import { useElementWidth } from "@/hooks/useElementWidth";
+import { InlineMarkdown } from "@/components/shared/MarkdownContent";
 
 function boxStyle(el: { x: number; y: number; width: number; height: number }) {
   return {
@@ -53,13 +54,13 @@ export function HeaderPreview({
         )}
 
         <div
-          className="absolute flex items-center whitespace-nowrap"
+          className="absolute flex items-center"
           style={{
             ...boxStyle({ ...theme.title, height: TITLE_BOX_HEIGHT }),
             ...textStyleToCss(theme.title),
           }}
         >
-          {title || "Untitled form"}
+          <InlineMarkdown content={title || "Untitled form"} />
         </div>
 
         {theme.images.map(
@@ -79,13 +80,13 @@ export function HeaderPreview({
         {theme.texts.map((text) => (
           <div
             key={text.id}
-            className="absolute flex items-center whitespace-nowrap"
+            className="absolute flex items-center"
             style={{
               ...boxStyle({ ...text, height: TITLE_BOX_HEIGHT }),
               ...textStyleToCss(text),
             }}
           >
-            {text.content}
+            <InlineMarkdown content={text.content} />
           </div>
         ))}
       </div>

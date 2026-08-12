@@ -236,6 +236,15 @@ function FieldPreview({
           className="w-full max-w-sm rounded-md border border-royal-100 bg-royal-50/40 px-3 py-2 text-sm text-royal-400"
         />
       );
+    case "link":
+      return (
+        <input
+          disabled
+          type="url"
+          placeholder="https://instagram.com/yourhandle"
+          className="w-full max-w-sm rounded-md border border-royal-100 bg-royal-50/40 px-3 py-2 text-sm text-royal-400"
+        />
+      );
     case "date":
       return (
         <input
@@ -390,16 +399,43 @@ function FieldPreview({
       );
     case "section-break":
       return editable ? (
-        <textarea
-          value={field.description}
-          onChange={(e) =>
-            onChange({ ...field, description: e.target.value })
-          }
-          onClick={(e) => e.stopPropagation()}
-          rows={2}
-          placeholder="Optional description shown under the section title"
-          className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
-        />
+        <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+          <textarea
+            value={field.description}
+            onChange={(e) =>
+              onChange({ ...field, description: e.target.value })
+            }
+            rows={2}
+            placeholder="Optional description shown under the section title. Markdown supported — **bold**, *italic*."
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+          <label className="flex items-center gap-2 text-xs font-medium text-royal-700">
+            Text color
+            <input
+              type="color"
+              value={field.color ?? "#141a42"}
+              onChange={(e) => onChange({ ...field, color: e.target.value })}
+              className="h-7 w-7 shrink-0 cursor-pointer rounded border border-royal-200 p-0.5"
+            />
+            {field.color && (
+              <button
+                type="button"
+                onClick={() => onChange({ ...field, color: undefined })}
+                className="text-royal-400 hover:underline"
+              >
+                Reset
+              </button>
+            )}
+          </label>
+          {field.description && (
+            <div className="rounded-lg border border-royal-100 bg-royal-50/40 p-3">
+              <span className="mb-2 block text-[11px] font-medium text-royal-400">
+                Preview
+              </span>
+              <MarkdownContent content={field.description} color={field.color} />
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex items-center gap-3">
           <div className="h-px flex-1 bg-royal-200" />
@@ -504,12 +540,30 @@ function FieldPreview({
             }
             className="w-full rounded-md border border-royal-200 px-3 py-2 font-mono text-xs text-royal-950 focus:border-royal-500 focus:outline-none"
           />
+          <label className="flex items-center gap-2 text-xs font-medium text-royal-700">
+            Text color
+            <input
+              type="color"
+              value={field.color ?? "#2635ab"}
+              onChange={(e) => onChange({ ...field, color: e.target.value })}
+              className="h-7 w-7 shrink-0 cursor-pointer rounded border border-royal-200 p-0.5"
+            />
+            {field.color && (
+              <button
+                type="button"
+                onClick={() => onChange({ ...field, color: undefined })}
+                className="text-royal-400 hover:underline"
+              >
+                Reset
+              </button>
+            )}
+          </label>
           {field.content && (
             <div className="rounded-lg border border-royal-100 bg-royal-50/40 p-3">
               <span className="mb-2 block text-[11px] font-medium text-royal-400">
                 Preview
               </span>
-              <MarkdownContent content={field.content} />
+              <MarkdownContent content={field.content} color={field.color} />
             </div>
           )}
         </div>

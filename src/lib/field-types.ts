@@ -9,6 +9,7 @@ import {
   StickyNote,
   Mail,
   Phone,
+  Link,
   Calendar,
   CircleDot,
   FileText,
@@ -94,6 +95,18 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
     create: () => ({
       id: createId(),
       type: "phone",
+      label: "Untitled question",
+      required: false,
+    }),
+  },
+  {
+    type: "link",
+    label: "Link",
+    description: "A URL, e.g. Facebook, Instagram, or LinkedIn profile",
+    icon: Link,
+    create: () => ({
+      id: createId(),
+      type: "link",
       label: "Untitled question",
       required: false,
     }),

@@ -9,7 +9,7 @@ export function FieldPalette({
   onAdd: (def: FieldTypeDef) => void;
 }) {
   return (
-    <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-4 md:sticky md:top-24">
+    <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-4 md:sticky md:top-24 md:max-h-[calc(100vh-12rem)] md:overflow-y-auto">
       <h2 className="mb-1 text-sm font-semibold text-royal-950">
         Add a field
       </h2>

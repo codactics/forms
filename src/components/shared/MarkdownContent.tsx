@@ -2,31 +2,65 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 
-export function MarkdownContent({ content }: { content: string }) {
+// For single-line, custom-styled text (form title, header text elements)
+// that must sit inline inside an absolutely-positioned box without a block
+// wrapper overriding the surrounding font/color styling. The <p> renders as
+// a <span> (not a bare fragment) so a flex/grid parent sees exactly one
+// item — a bare fragment would let sibling markdown nodes (e.g. <strong>
+// plus trailing text) become separate flex items instead of one flowing
+// line, breaking layout on multi-line content. remark-breaks turns every
+// Enter press into a real <br> so line breaks don't depend on CSS
+// white-space preserving raw newline characters (which double-counted
+// against CommonMark's own backslash-hard-break syntax).
+export function InlineMarkdown({ content }: { content: string }) {
   return (
-    <div className="flex flex-col gap-3 text-sm leading-relaxed text-royal-700">
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkBreaks]}
+      components={{
+        p: ({ children }) => <span>{children}</span>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+
+export function MarkdownContent({
+  content,
+  color,
+}: {
+  content: string;
+  color?: string;
+}) {
+  const colorStyle = color ? { color } : undefined;
+  return (
+    <div
+      className="flex flex-col gap-3 text-sm leading-relaxed text-royal-700"
+      style={colorStyle}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
           p: ({ children }) => <p>{children}</p>,
           h1: ({ children }) => (
-            <h1 className="text-lg font-semibold text-royal-950">
+            <h1 className="text-lg font-semibold text-royal-950" style={colorStyle}>
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-base font-semibold text-royal-950">
+            <h2 className="text-base font-semibold text-royal-950" style={colorStyle}>
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-sm font-semibold text-royal-950">
+            <h3 className="text-sm font-semibold text-royal-950" style={colorStyle}>
               {children}
             </h3>
           ),
           strong: ({ children }) => (
-            <strong className="font-semibold text-royal-900">
+            <strong className="font-semibold text-royal-900" style={colorStyle}>
               {children}
             </strong>
           ),

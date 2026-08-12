@@ -12,9 +12,21 @@ export default async function Home() {
     <div className="flex flex-1 flex-col">
       <header className="border-b border-royal-100 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center gap-4 px-6 py-3">
-          <span className="text-sm font-semibold text-royal-950">
-            Codactis
-          </span>
+          <a
+            href="https://www.codactics.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:underline"
+          >
+            <Image
+              src="/logo/codactics.png"
+              alt="Codactis logo"
+              width={20}
+              height={20}
+              className="rounded"
+            />
+            CODACTICS
+          </a>
           <div className="flex-1" />
           {isLoggedIn ? (
             <UserMenu />
@@ -31,10 +43,11 @@ export default async function Home() {
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-24">
         <Image
-          src="/logo/codactics.png"
+          src="/logo/codactics.gif"
           alt="Codactis logo"
           width={96}
           height={96}
+          unoptimized
           priority
           className="rounded-2xl"
         />

@@ -17,6 +17,7 @@ import {
 } from "@/types/theme";
 import { checkTitleAvailability } from "@/lib/form-actions";
 import { useElementWidth } from "@/hooks/useElementWidth";
+import { InlineMarkdown, MarkdownContent } from "@/components/shared/MarkdownContent";
 import { DraggableBox } from "./DraggableBox";
 import { HeaderPreview } from "./HeaderPreview";
 import { PageBackground } from "./PageBackground";
@@ -124,16 +125,18 @@ export function DesignStep({
   }
 
   return (
-    <main className="mx-auto grid max-w-6xl gap-6 px-6 py-8 md:grid-cols-[300px_1fr]">
+    <main className="grid w-full gap-6 px-6 py-8 md:grid-cols-[300px_1fr]">
       <div className="flex flex-col gap-4 rounded-xl border border-royal-100 bg-white p-4 md:sticky md:top-6 md:h-fit md:max-h-[calc(100vh-3rem)] md:overflow-y-auto">
         <div>
           <label className="mb-1 block text-xs font-medium text-royal-700">
             Form title
           </label>
-          <input
+          <textarea
             value={formTitle}
             onChange={(e) => onTitleChange(e.target.value)}
-            className="w-full rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+            rows={2}
+            placeholder={"Markdown supported — e.g. **Champions** Cup 2026\nPress Enter for a second line"}
+            className="w-full resize-y rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
           />
           {titleWarning && (
             <p className="mt-1.5 text-xs text-amber-600">{titleWarning}</p>
@@ -482,7 +485,7 @@ export function DesignStep({
             value={theme.note}
             onChange={(e) => onThemeChange({ ...theme, note: e.target.value })}
             rows={3}
-            placeholder="e.g. Please read the tournament rules before registering."
+            placeholder="Markdown supported — e.g. Please read the **tournament rules** before registering."
             className="w-full resize-y rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
           />
         </div>
@@ -496,7 +499,7 @@ export function DesignStep({
         </button>
       </div>
 
-      <div className="flex flex-col gap-6">
+      <div className="flex max-w-3xl flex-col gap-6">
         <div>
           <p className="mb-2 text-xs font-medium text-royal-700">
             Editor — drag elements to position them
@@ -563,10 +566,10 @@ export function DesignStep({
               }
             >
               <div
-                className="flex h-full w-full items-center whitespace-nowrap"
+                className="flex h-full w-full items-center"
                 style={textStyleToCss(theme.title)}
               >
-                {formTitle || "Untitled form"}
+                <InlineMarkdown content={formTitle || "Untitled form"} />
               </div>
             </DraggableBox>
 
@@ -608,10 +611,10 @@ export function DesignStep({
                 onChange={(updates) => updateText(text.id, updates)}
               >
                 <div
-                  className="flex h-full w-full items-center whitespace-nowrap"
+                  className="flex h-full w-full items-center"
                   style={textStyleToCss(text)}
                 >
-                  {text.content}
+                  <InlineMarkdown content={text.content} />
                 </div>
               </DraggableBox>
             ))}
@@ -631,8 +634,8 @@ export function DesignStep({
         </div>
 
         {theme.note && (
-          <div className="whitespace-pre-wrap rounded-xl border border-royal-100 bg-white p-4 text-sm text-royal-700">
-            {theme.note}
+          <div className="rounded-xl border border-royal-100 bg-white p-4">
+            <MarkdownContent content={theme.note} />
           </div>
         )}
 
@@ -751,11 +754,13 @@ function TextElementCard({
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-md border border-royal-100 p-2.5">
-      <div className="flex items-center gap-2">
-        <input
+      <div className="flex items-start gap-2">
+        <textarea
           value={text.content}
           onChange={(e) => onChange({ content: e.target.value })}
-          className="min-w-0 flex-1 rounded border border-royal-200 px-2 py-1 text-xs text-royal-950 focus:border-royal-500 focus:outline-none"
+          rows={2}
+          placeholder="Markdown supported — **bold**, *italic*"
+          className="min-w-0 flex-1 resize-y rounded border border-royal-200 px-2 py-1 text-xs text-royal-950 focus:border-royal-500 focus:outline-none"
         />
         <button
           type="button"

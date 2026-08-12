@@ -16,7 +16,7 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { ArrowLeft, Palette, Check, Copy } from "lucide-react";
+import { ArrowLeft, Palette, Check, Copy, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { createField, getFieldTypeDef, type FieldTypeDef } from "@/lib/field-types";
 import type { FieldType, FormField } from "@/types/form-builder";
 import { DEFAULT_THEME, type FormTheme } from "@/types/theme";
@@ -53,6 +53,7 @@ function NewFormPageInner() {
   const searchParams = useSearchParams();
   const formId = searchParams.get("formId");
 
+  const [paletteOpen, setPaletteOpen] = useState(true);
   const [formTitle, setFormTitle] = useState("Untitled form");
   const [theme, setTheme] = useState<FormTheme>(DEFAULT_THEME);
   const [flowStep, setFlowStep] = useState<"design" | "build">("design");
@@ -283,7 +284,7 @@ function NewFormPageInner() {
     return (
       <div className="flex flex-1 flex-col bg-background">
         <header className="sticky top-0 z-20 border-b border-royal-100 bg-white/80 backdrop-blur">
-          <div className="mx-auto flex max-w-6xl items-center gap-4 px-6 py-3">
+          <div className="flex w-full items-center gap-4 px-6 py-3">
             <Link
               href="/"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-royal-500 hover:bg-royal-50"
@@ -313,7 +314,7 @@ function NewFormPageInner() {
   return (
     <div className="flex flex-1 flex-col bg-background">
       <header className="sticky top-0 z-20 border-b border-royal-100 bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-[1600px] items-center gap-4 px-6 py-3">
+        <div className="flex w-full items-center gap-4 px-6 py-3">
           <Link
             href="/"
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-royal-500 hover:bg-royal-50"
@@ -407,7 +408,7 @@ function NewFormPageInner() {
         />
       )}
       {publishState === "error" && publishError && (
-        <div className="mx-auto flex w-full max-w-[1600px] items-center justify-between gap-3 px-6 pt-4">
+        <div className="flex w-full items-center justify-between gap-3 px-6 pt-4">
           <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">
             {publishError}
           </p>
@@ -435,12 +436,25 @@ function NewFormPageInner() {
           onDragCancel={handleDragCancel}
         >
           <main
-            className="mx-auto grid max-w-[1600px] gap-6 px-6 py-8 md:grid-cols-[240px_minmax(0,1fr)]"
+            className={`grid w-full gap-6 px-6 py-8 ${
+              paletteOpen ? "md:grid-cols-[240px_minmax(0,1fr)]" : "md:grid-cols-[minmax(0,1fr)]"
+            }`}
             onClick={() => setSelectedId(null)}
           >
-            <FieldPalette onAdd={addField} />
+            {paletteOpen && <FieldPalette onAdd={addField} />}
 
             <div className="min-w-0 w-full" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPaletteOpen((v) => !v);
+                }}
+                className="mb-3 hidden items-center gap-1.5 rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-xs font-medium text-royal-600 hover:bg-royal-50 md:flex"
+              >
+                {paletteOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+                {paletteOpen ? "Hide panel" : "Show panel"}
+              </button>
               <FormCanvas
                 fields={fields}
                 selectedId={selectedId}
@@ -491,7 +505,7 @@ function PublishSuccessBanner({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center justify-between gap-3 px-6 pt-4">
+    <div className="flex w-full flex-wrap items-center justify-between gap-3 px-6 pt-4">
       <div className="flex flex-1 items-center gap-3 rounded-lg border border-royal-200 bg-royal-50 px-4 py-2.5">
         <Check size={16} className="shrink-0 text-royal-600" />
         <span className="text-sm text-royal-700">Published — live at</span>
