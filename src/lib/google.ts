@@ -1,12 +1,15 @@
 import { Readable } from "node:stream";
 import { google } from "googleapis";
 import type { drive_v3, sheets_v4 } from "googleapis";
-import type {
-  FormField,
-  PlayerListColumn,
-  PlayerListField,
+import {
+  normalizeDropdownOption,
+  type ButtonField,
+  type FormField,
+  type PlayerListColumn,
+  type PlayerListField,
 } from "@/types/form-builder";
 import { formatComputedResult, resolveComputedValues } from "@/lib/computed";
+import { formatBerlinDate, formatBerlinTime } from "@/lib/timezones";
 
 export function getGoogleClients(refreshToken: string) {
   const oauth2Client = new google.auth.OAuth2(
@@ -66,10 +69,26 @@ async function findOrCreateFolder(
   return created.data.id;
 }
 
-const NON_DATA_TYPES = new Set(["static-text", "section-break", "player-list"]);
+const NON_DATA_TYPES = new Set([
+  "static-text",
+  "section-break",
+  "player-list",
+  "button",
+]);
 
 function isPlayerListField(field: FormField): field is PlayerListField {
   return field.type === "player-list";
+}
+
+function isButtonField(field: FormField): field is ButtonField {
+  return field.type === "button";
+}
+
+// Button sub-answers aren't repeating, so they're flattened as extra
+// columns directly on the "Submissions" tab rather than getting their own
+// tab (unlike a Repeating list's columns, which get one row per entry).
+function buttonColumnHeader(field: ButtonField, column: PlayerListColumn): string {
+  return `${field.label || "Untitled"} — ${column.label || "Untitled"}`;
 }
 
 export async function publishFormToGoogle({
@@ -110,6 +129,7 @@ export async function publishFormToGoogle({
   });
 
   const playerListFields = fields.filter(isPlayerListField);
+  const buttonFields = fields.filter(isButtonField);
   const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
 
   const sheetTabs: sheets_v4.Schema$Sheet[] = [
@@ -143,8 +163,11 @@ export async function publishFormToGoogle({
 
   const submissionsHeader = [
     "Submission ID",
-    "Submitted At",
+    "Submitted Date (Germany)",
+    "Submitted Time (Germany)",
+    "Username",
     ...dataFields.map((f) => f.label || "Untitled"),
+    ...buttonFields.flatMap((f) => f.fields.map((c) => buttonColumnHeader(f, c))),
   ];
   await sheets.spreadsheets.values.update({
     spreadsheetId,
@@ -217,12 +240,16 @@ export async function syncSheetColumns({
   );
 
   const playerListFields = fields.filter(isPlayerListField);
+  const buttonFields = fields.filter(isButtonField);
   const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
 
   await syncTabHeader(sheets, spreadsheetId, "Submissions", [
     "Submission ID",
-    "Submitted At",
+    "Submitted Date (Germany)",
+    "Submitted Time (Germany)",
+    "Username",
     ...dataFields.map((f) => f.label || "Untitled"),
+    ...buttonFields.flatMap((f) => f.fields.map((c) => buttonColumnHeader(f, c))),
   ]);
 
   for (const playerListField of playerListFields) {
@@ -278,6 +305,101 @@ function dataUrlToBuffer(
   const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
   if (!match) return null;
   return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
+}
+
+// webViewLink opens Drive's HTML viewer page, not the raw image — no good
+// as an <img src>. This is the direct-content hotlink pattern that actually
+// renders, so the file also has to be shared "anyone with the link" for it
+// to load for anonymous visitors on the public form.
+function driveImageUrl(fileId: string): string {
+  return `https://lh3.googleusercontent.com/d/${fileId}`;
+}
+
+async function uploadPublicImage(
+  drive: drive_v3.Drive,
+  folderId: string,
+  fileName: string,
+  dataUrl: string,
+): Promise<string> {
+  const parsed = dataUrlToBuffer(dataUrl);
+  if (!parsed) return dataUrl;
+  const created = await drive.files.create({
+    requestBody: { name: fileName, parents: [folderId] },
+    media: { mimeType: parsed.mimeType, body: Readable.from(parsed.buffer) },
+    fields: "id",
+  });
+  const fileId = created.data.id;
+  if (!fileId) return dataUrl;
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: "reader", type: "anyone" },
+  });
+  return driveImageUrl(fileId);
+}
+
+// Dropdown option thumbnails and Button images are saved as base64 data
+// URLs in the builder (so editing works before the admin is ever signed in
+// with Drive access) — this moves any of those over to the form's own
+// Drive folder at publish/update time, replacing the data URL in the saved
+// schema with a hotlink. Fields that already reference an uploaded image
+// (from a previous publish) are left alone, so nothing re-uploads on every
+// edit. No-ops entirely (never touches Drive) if there's nothing embedded.
+export async function uploadSchemaImages({
+  refreshToken,
+  formFolderId,
+  fields,
+}: {
+  refreshToken: string;
+  formFolderId: string;
+  fields: FormField[];
+}): Promise<FormField[]> {
+  const hasEmbeddedImage = fields.some((f) => {
+    if (f.type === "dropdown") {
+      return f.options.some((o) => {
+        const opt = normalizeDropdownOption(o);
+        return opt.imageDataUrl?.startsWith("data:");
+      });
+    }
+    if (f.type === "button") return f.buttonImageDataUrl?.startsWith("data:");
+    return false;
+  });
+  if (!hasEmbeddedImage) return fields;
+
+  const { drive } = getGoogleClients(refreshToken);
+  const imagesFolderId = await findOrCreateFolder(drive, "images", formFolderId);
+
+  const updated: FormField[] = [];
+  for (const field of fields) {
+    if (field.type === "dropdown") {
+      const options = [];
+      for (const [i, raw] of field.options.entries()) {
+        const opt = normalizeDropdownOption(raw);
+        if (opt.imageDataUrl?.startsWith("data:")) {
+          const url = await uploadPublicImage(
+            drive,
+            imagesFolderId,
+            `${sanitizeName(field.label || "option")}_${i + 1}_${timestampSuffix()}`,
+            opt.imageDataUrl,
+          );
+          options.push({ ...opt, imageDataUrl: url });
+        } else {
+          options.push(opt);
+        }
+      }
+      updated.push({ ...field, options });
+    } else if (field.type === "button" && field.buttonImageDataUrl?.startsWith("data:")) {
+      const url = await uploadPublicImage(
+        drive,
+        imagesFolderId,
+        `${sanitizeName(field.label || "button")}_${timestampSuffix()}`,
+        field.buttonImageDataUrl,
+      );
+      updated.push({ ...field, buttonImageDataUrl: url } as ButtonField);
+    } else {
+      updated.push(field);
+    }
+  }
+  return updated;
 }
 
 async function appendRowMatchingHeader(
@@ -388,20 +510,23 @@ export async function recordSubmission({
   formFolderId,
   fields,
   formData,
+  accessUsername,
 }: {
   refreshToken: string;
   spreadsheetId: string;
   formFolderId: string;
   fields: FormField[];
   formData: FormData;
+  accessUsername?: string;
 }): Promise<{ submissionId: string }> {
   const { drive, sheets } = getGoogleClients(refreshToken);
   const filesFolderId = await findOrCreateFolder(drive, "Files", formFolderId);
 
   const submissionId = crypto.randomUUID();
-  const submittedAt = new Date().toLocaleString();
+  const submittedAt = new Date();
 
   const playerListFields = fields.filter(isPlayerListField);
+  const buttonFields = fields.filter(isButtonField);
   const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
 
   // Computed fields are recalculated from the submitted Number/Rating
@@ -420,7 +545,9 @@ export async function recordSubmission({
 
   const submissionRow: Record<string, string> = {
     "Submission ID": submissionId,
-    "Submitted At": submittedAt,
+    "Submitted Date (Germany)": formatBerlinDate(submittedAt),
+    "Submitted Time (Germany)": formatBerlinTime(submittedAt),
+    "Username": accessUsername ?? "",
   };
   for (const field of dataFields) {
     submissionRow[field.label || "Untitled"] =
@@ -433,6 +560,20 @@ export async function recordSubmission({
             filesFolderId,
             submissionId,
           );
+  }
+  for (const buttonField of buttonFields) {
+    for (const column of buttonField.fields) {
+      const key = `${buttonField.id}__${column.id}`;
+      submissionRow[buttonColumnHeader(buttonField, column)] =
+        await extractPlayerColumnValue(
+          column,
+          formData,
+          key,
+          drive,
+          filesFolderId,
+          `${submissionId}_${buttonField.id}`,
+        );
+    }
   }
   await appendRowMatchingHeader(
     sheets,

@@ -1,8 +1,21 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
-import { Image, FileText, Check, CircleCheck, CircleAlert, Star } from "lucide-react";
-import type { FormField, PlayerListColumn, DropdownField } from "@/types/form-builder";
+import {
+  createContext,
+  useActionState,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { Image, FileText, Check, CircleCheck, CircleAlert, Star, X } from "lucide-react";
+import {
+  normalizeDropdownOption,
+  type FormField,
+  type PlayerListColumn,
+  type DropdownField,
+} from "@/types/form-builder";
 import type { FormTheme } from "@/types/theme";
 import { initialSubmitState, type SubmitState } from "@/types/submission";
 import { applyOperation, formatComputedResult } from "@/lib/computed";
@@ -14,11 +27,55 @@ async function noopSubmitAction(): Promise<SubmitState> {
   return initialSubmitState;
 }
 
+// jsPDF's addImage/getImageProperties need actual image data (a data: URL
+// or raw bytes) — a plain http(s) URL throws. Button images published
+// through Google Drive or local storage are saved as hotlink URLs, not
+// embedded base64, so they need fetching and re-encoding before jsPDF can
+// draw them. Returns null (rather than throwing) on any failure — a
+// missing thumbnail shouldn't take down the whole PDF.
+async function toEmbeddablePdfImage(url: string): Promise<string | null> {
+  if (url.startsWith("data:")) return url;
+  // A Google Drive hotlink is cross-origin — fetching it directly from the
+  // browser risks CORS blocking the read even though the image itself
+  // displays fine in a plain <img>. Routing it through our own proxy route
+  // sidesteps that; a same-origin schema-assets URL doesn't need it.
+  const fetchUrl = url.startsWith("https://lh3.googleusercontent.com/")
+    ? `/api/pdf-image-proxy?url=${encodeURIComponent(url)}`
+    : url;
+  try {
+    const res = await fetch(fetchUrl);
+    if (!res.ok) {
+      console.warn("PDF image fetch failed:", fetchUrl, res.status);
+      return null;
+    }
+    const contentType = res.headers.get("content-type") || "image/png";
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // Building the base64 string directly from the fetched bytes (rather
+    // than FileReader.readAsDataURL on a Blob) so the exact bytes jsPDF's
+    // own magic-byte sniffing sees are the ones this function actually
+    // fetched — chunked to stay well under btoa/String.fromCharCode's
+    // per-call argument limit for a large image.
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+    }
+    return `data:${contentType};base64,${btoa(binary)}`;
+  } catch (err) {
+    console.warn("PDF image fetch failed:", fetchUrl, err);
+    return null;
+  }
+}
+
 interface FormSection {
   title: string | null;
   description: string;
   color?: string;
   fields: FormField[];
+  // The section-break field that started this section, if any — used to
+  // look up its popup (shown once, when the respondent advances into this
+  // section via Next) without a separate lookup pass.
+  sectionBreakField?: FormField;
 }
 
 function splitIntoSections(fields: FormField[]): FormSection[] {
@@ -30,6 +87,7 @@ function splitIntoSections(fields: FormField[]): FormSection[] {
         description: field.description,
         color: field.color,
         fields: [],
+        sectionBreakField: field,
       });
     } else {
       sections[sections.length - 1].fields.push(field);
@@ -45,7 +103,13 @@ function splitIntoSections(fields: FormField[]): FormSection[] {
 type ReviewValue =
   | { kind: "text"; text: string }
   | { kind: "image"; dataUrl: string; alt: string }
-  | { kind: "rows"; entries: { label: string; value: string }[][] };
+  | { kind: "rows"; entries: { label: string; value: string }[][] }
+  | {
+      kind: "button";
+      buttonText: string;
+      imageDataUrl?: string;
+      answers: { label: string; value: string }[];
+    };
 
 interface ReviewItem {
   id: string;
@@ -78,6 +142,29 @@ function reviewPlayerListRows(
     if (row.some((c) => c.value)) rows.push(row);
   }
   return rows;
+}
+
+function reviewButtonAnswer(
+  field: Extract<FormField, { type: "button" }>,
+  formData: FormData,
+): ReviewValue {
+  const answers = field.fields
+    .map((column) => {
+      const key = `${field.id}__${column.id}`;
+      if (column.type === "photo") {
+        const file = formData.get(key);
+        return { label: column.label, value: file instanceof File && file.size > 0 ? file.name : "" };
+      }
+      return { label: column.label, value: String(formData.get(key) ?? "") };
+    })
+    .filter((a) => a.value);
+  return {
+    kind: "button",
+    buttonText: field.buttonText,
+    imageDataUrl:
+      field.buttonStyle === "image" ? field.buttonImageDataUrl : undefined,
+    answers,
+  };
 }
 
 function reviewValueForField(field: FormField, formData: FormData): ReviewValue {
@@ -142,6 +229,35 @@ function reviewValueNode(value: ReviewValue): ReactNode {
           ))}
         </div>
       );
+    case "button":
+      return (
+        <div className="flex flex-col gap-1.5">
+          {(value.imageDataUrl || value.buttonText) && (
+            <div className="flex items-center gap-2">
+              {value.imageDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={value.imageDataUrl}
+                  alt={value.buttonText}
+                  className="h-10 w-10 shrink-0 rounded-lg border border-royal-100 object-cover"
+                />
+              )}
+              {value.buttonText && (
+                <span className="font-medium text-royal-950">
+                  {value.buttonText}
+                </span>
+              )}
+            </div>
+          )}
+          {value.answers.length === 0 ? (
+            <span className="text-royal-500">Not answered</span>
+          ) : (
+            <span className="text-royal-800">
+              {value.answers.map((a) => `${a.label}: ${a.value}`).join(", ")}
+            </span>
+          )}
+        </div>
+      );
   }
 }
 
@@ -162,6 +278,14 @@ function buildReviewSections(
             id: field.id,
             label: field.label || "Untitled question",
             value: { kind: "rows", entries: reviewPlayerListRows(field, formData) },
+          });
+          continue;
+        }
+        if (field.type === "button") {
+          items.push({
+            id: field.id,
+            label: field.label || "Untitled question",
+            value: reviewButtonAnswer(field, formData),
           });
           continue;
         }
@@ -209,6 +333,18 @@ export function FormRenderer({
     initialSubmitState,
   );
 
+  const [activePopup, setActivePopup] = useState<{ title: string; content: string } | null>(
+    null,
+  );
+  const shownPopupIds = useRef<Set<string>>(new Set());
+
+  function triggerPopup(field: FormField) {
+    if (!field.popup?.enabled || !field.popup.content) return;
+    if (!field.popup.repeat && shownPopupIds.current.has(field.id)) return;
+    shownPopupIds.current.add(field.id);
+    setActivePopup({ title: field.popup.title, content: field.popup.content });
+  }
+
   function tryEnterReview() {
     const formEl = formRef.current;
     if (!formEl || !formEl.reportValidity()) return;
@@ -228,7 +364,13 @@ export function FormRenderer({
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 48;
       const contentWidth = pageWidth - margin * 2;
-      const headerHeight = 46;
+      // The title sits well clear of the physical top edge, the rule line
+      // clear of the title's own descenders, and body content clear of the
+      // rule line — each with its own margin rather than one shared gap,
+      // so a slightly taller title font never lets one bleed into the next.
+      const titleBaselineY = margin + 12;
+      const ruleY = titleBaselineY + 14;
+      const headerHeight = ruleY - margin + 24;
       const bottomLimit = pageHeight - margin;
       let y = margin + headerHeight;
 
@@ -252,6 +394,13 @@ export function FormRenderer({
 
       // jsPDF's built-in fonts don't reliably render an em dash.
       const pdfSafe = (text: string) => text.replace(/—/g, "-");
+
+      // The header title is drawn as one fixed-position line via a raw
+      // pdf.text() call (not the wrapping writeLines helper below) — an
+      // embedded newline (titles are saved sanitized now, but older forms
+      // may already have one saved) would make jsPDF's own default line
+      // spacing kick in there and collide with the rule line right under it.
+      const pdfTitle = (title || "Untitled form").replace(/\s+/g, " ").trim();
 
       function ensureSpace(needed: number) {
         if (y + needed > bottomLimit) {
@@ -299,7 +448,7 @@ export function FormRenderer({
             } catch {
               writeLines("Signed", 11, 20);
             }
-          } else {
+          } else if (item.value.kind === "rows") {
             if (item.value.entries.length === 0) {
               writeLines("No entries", 11, 20);
             } else {
@@ -310,6 +459,34 @@ export function FormRenderer({
                 writeLines(line, 10, 20);
               });
             }
+          } else {
+            if (item.value.imageDataUrl) {
+              const embeddable = await toEmbeddablePdfImage(item.value.imageDataUrl);
+              try {
+                if (!embeddable) throw new Error("Image could not be fetched");
+                const props = pdf.getImageProperties(embeddable);
+                const imgWidth = 60;
+                const imgHeight = (props.height * imgWidth) / props.width;
+                ensureSpace(imgHeight);
+                pdf.addImage(embeddable, margin, y, imgWidth, imgHeight);
+                y += imgHeight + 8;
+              } catch (err) {
+                // Skip the thumbnail rather than failing the whole PDF —
+                // but still log it, since this used to fail completely
+                // silently.
+                console.warn("Button image PDF embed failed:", err);
+              }
+            }
+            if (item.value.buttonText) {
+              writeLines(item.value.buttonText, 11, 20);
+            }
+            writeLines(
+              item.value.answers.length === 0
+                ? "Not answered"
+                : item.value.answers.map((a) => `${a.label}: ${a.value}`).join(", "),
+              10,
+              20,
+            );
           }
           y += 8;
         }
@@ -352,10 +529,10 @@ export function FormRenderer({
         pdf.setFont("helvetica", "bold");
         pdf.setFontSize(14);
         pdf.setTextColor(20);
-        pdf.text(title || "Untitled form", margin, margin);
+        pdf.text(pdfTitle, margin, titleBaselineY);
         pdf.setDrawColor(180);
         pdf.setLineWidth(1);
-        pdf.line(margin, margin + 10, pageWidth - margin, margin + 10);
+        pdf.line(margin, ruleY, pageWidth - margin, ruleY);
 
         pdf.setFont("helvetica", "normal");
         pdf.setFontSize(8.5);
@@ -372,7 +549,7 @@ export function FormRenderer({
         );
       }
 
-      const safeTitle = (title || "form").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+      const safeTitle = pdfTitle.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "form";
       pdf.save(`${safeTitle}-submission.pdf`);
     } finally {
       setDownloadingPdf(false);
@@ -441,38 +618,44 @@ export function FormRenderer({
             </div>
           )}
 
-          {sections.map((section, i) => (
-            <div
-              key={i}
-              className={
-                !showReview && i === currentStep
-                  ? "flex flex-col gap-4"
-                  : "hidden"
-              }
-            >
-              {section.title && (
-                <div>
-                  <h2
-                    className="text-lg font-semibold text-royal-950"
-                    style={section.color ? { color: section.color } : undefined}
-                  >
-                    {section.title}
-                  </h2>
-                  {section.description && (
-                    <div className="mt-1">
-                      <MarkdownContent
-                        content={section.description}
-                        color={section.color}
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-              {section.fields.map((field) => (
-                <FieldRenderer key={field.id} field={field} />
-              ))}
-            </div>
-          ))}
+          <PopupTriggerContext.Provider value={triggerPopup}>
+            {sections.map((section, i) => (
+              <div
+                key={i}
+                className={
+                  !showReview && i === currentStep
+                    ? "flex flex-col gap-4"
+                    : "hidden"
+                }
+              >
+                {section.title && (
+                  <div>
+                    <h2
+                      className="text-lg font-semibold text-royal-950"
+                      style={section.color ? { color: section.color } : undefined}
+                    >
+                      {section.title}
+                    </h2>
+                    {section.description && (
+                      <div className="mt-1">
+                        <MarkdownContent
+                          content={section.description}
+                          color={section.color}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+                {section.fields.map((field) => (
+                  <FieldRenderer key={field.id} field={field} />
+                ))}
+              </div>
+            ))}
+          </PopupTriggerContext.Provider>
+
+          {activePopup && (
+            <PopupModal popup={activePopup} onDismiss={() => setActivePopup(null)} />
+          )}
 
           {showReview && (
             <div className="flex flex-col gap-4">
@@ -546,7 +729,14 @@ export function FormRenderer({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setStep((s) => Math.min(sections.length - 1, s + 1))}
+                    onClick={() => {
+                      const next = Math.min(sections.length - 1, step + 1);
+                      const enteredSection = sections[next];
+                      if (enteredSection?.sectionBreakField) {
+                        triggerPopup(enteredSection.sectionBreakField);
+                      }
+                      setStep(next);
+                    }}
                     className="rounded-full bg-royal-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-royal-700"
                   >
                     Next
@@ -604,22 +794,57 @@ export function FormRenderer({
   );
 }
 
+// Lets FieldCard (used from ~15 call sites across FieldRenderer's switch)
+// trigger a field's popup on first focus without threading a callback prop
+// through every single one of those call sites individually.
+const PopupTriggerContext = createContext<(field: FormField) => void>(() => {});
+
 function FieldCard({
-  label,
-  required,
+  field,
   children,
 }: {
-  label: string;
-  required: boolean;
+  field: FormField;
   children: ReactNode;
 }) {
+  const triggerPopup = useContext(PopupTriggerContext);
   return (
-    <div className="rounded-xl border border-royal-100 bg-white p-5 shadow-sm">
+    <div
+      className="rounded-xl border border-royal-100 bg-white p-5 shadow-sm"
+      onFocusCapture={() => triggerPopup(field)}
+    >
       <label className="mb-2 block text-sm font-medium text-royal-950">
-        {label || "Untitled question"}
-        {required && <span className="ml-0.5 text-red-500">*</span>}
+        {field.label || "Untitled question"}
+        {field.required && <span className="ml-0.5 text-red-500">*</span>}
       </label>
       {children}
+    </div>
+  );
+}
+
+function PopupModal({
+  popup,
+  onDismiss,
+}: {
+  popup: { title: string; content: string };
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+        {popup.title && (
+          <h3 className="mb-2 text-base font-semibold text-royal-950">
+            {popup.title}
+          </h3>
+        )}
+        <MarkdownContent content={popup.content} />
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="mt-4 w-full rounded-full bg-royal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-royal-700"
+        >
+          Got it
+        </button>
+      </div>
     </div>
   );
 }
@@ -628,7 +853,7 @@ function FieldRenderer({ field }: { field: FormField }) {
   switch (field.type) {
     case "short-text":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             name={field.id}
             required={field.required}
@@ -638,7 +863,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "long-text":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <textarea
             name={field.id}
             required={field.required}
@@ -649,7 +874,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "number":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             type="number"
             name={field.id}
@@ -662,7 +887,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "email":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             type="email"
             name={field.id}
@@ -674,7 +899,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "phone":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             type="tel"
             name={field.id}
@@ -686,7 +911,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "link":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             type="url"
             name={field.id}
@@ -698,7 +923,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "date":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <input
             type="date"
             name={field.id}
@@ -711,31 +936,31 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "photo":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <PhotoUploadInput name={field.id} required={field.required} />
         </FieldCard>
       );
     case "document":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <DocumentUploadInput name={field.id} required={field.required} />
         </FieldCard>
       );
     case "signature":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <SignaturePad name={field.id} />
         </FieldCard>
       );
     case "dropdown":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <DropdownFieldInput field={field} />
         </FieldCard>
       );
     case "multiple-choice":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <div className="flex flex-col gap-2">
             {field.options.map((option, i) => (
               <label
@@ -756,7 +981,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "checkbox":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           <div className="flex gap-6">
             <label className="flex items-center gap-2 text-sm text-royal-800">
               <input
@@ -776,7 +1001,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "rating":
       return (
-        <FieldCard label={field.label} required={field.required}>
+        <FieldCard field={field}>
           {field.style === "stars" ? (
             <StarRatingInput name={field.id} max={field.max} />
           ) : (
@@ -790,7 +1015,7 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "computed":
       return field.showOnForm ? (
-        <FieldCard label={field.label} required={false}>
+        <FieldCard field={field}>
           <ComputedFieldDisplay field={field} />
         </FieldCard>
       ) : (
@@ -800,6 +1025,8 @@ function FieldRenderer({ field }: { field: FormField }) {
       );
     case "player-list":
       return <PlayerListRenderer field={field} />;
+    case "button":
+      return <ButtonFieldRenderer field={field} />;
     case "static-text":
       return field.content ? (
         <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-5">
@@ -1105,8 +1332,17 @@ const DROPDOWN_OTHER_VALUE = "__other__";
 
 function DropdownFieldInput({ field }: { field: DropdownField }) {
   const [selected, setSelected] = useState<string[]>([]);
+  const [zoomedImage, setZoomedImage] = useState<{ url: string; label: string } | null>(
+    null,
+  );
   const containerRef = useRef<HTMLDivElement>(null);
   const showOther = field.allowOther && selected.includes(DROPDOWN_OTHER_VALUE);
+  const options = field.options.map(normalizeDropdownOption);
+  // A native <select> can't render images inside its <option>s at all (a
+  // hard HTML limitation, not a styling one) — so once any option has one,
+  // single-select switches to a styled radio list that can show them,
+  // instead of staying a compact native dropdown.
+  const hasImages = options.some((o) => o.imageDataUrl);
 
   useEffect(() => {
     const formEl = containerRef.current?.closest("form");
@@ -1116,37 +1352,77 @@ function DropdownFieldInput({ field }: { field: DropdownField }) {
     return () => formEl.removeEventListener("reset", handleReset);
   }, []);
 
+  const limit = field.maxSelections;
+  const limitReached = !!limit && selected.length >= limit;
+
   return (
     <div ref={containerRef} className="flex flex-col gap-2">
       {field.allowMultiple ? (
         <div className="flex flex-col gap-2">
-          {field.options.map((option, i) => (
+          {!!limit && (
+            <p className="text-xs font-medium text-royal-400">
+              Choose up to {limit} — {selected.length} selected
+            </p>
+          )}
+          {options.map((option, i) => {
+            const checked = selected.includes(option.label);
+            return (
+              <label
+                key={i}
+                className={`flex items-center gap-2 text-sm ${
+                  !checked && limitReached ? "text-royal-300" : "text-royal-800"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  name={field.id}
+                  value={option.label}
+                  checked={checked}
+                  disabled={!checked && limitReached}
+                  className="h-4 w-4 rounded border-royal-300"
+                  onChange={(e) =>
+                    setSelected((prev) =>
+                      e.target.checked
+                        ? [...prev, option.label]
+                        : prev.filter((v) => v !== option.label),
+                    )
+                  }
+                />
+                {option.imageDataUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={option.imageDataUrl}
+                    alt=""
+                    onClick={(e) => {
+                      // Clicking anywhere inside a <label> (including this
+                      // image) normally also toggles its checkbox/radio —
+                      // stop that so zooming the image doesn't also change
+                      // the answer.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setZoomedImage({ url: option.imageDataUrl!, label: option.label });
+                    }}
+                    className="h-8 w-8 shrink-0 cursor-zoom-in rounded object-cover"
+                  />
+                )}
+                {option.label}
+              </label>
+            );
+          })}
+          {field.allowOther && (
             <label
-              key={i}
-              className="flex items-center gap-2 text-sm text-royal-800"
+              className={`flex items-center gap-2 text-sm ${
+                !selected.includes(DROPDOWN_OTHER_VALUE) && limitReached
+                  ? "text-royal-300"
+                  : "text-royal-800"
+              }`}
             >
               <input
                 type="checkbox"
                 name={field.id}
-                value={option}
-                className="h-4 w-4 rounded border-royal-300"
-                onChange={(e) =>
-                  setSelected((prev) =>
-                    e.target.checked
-                      ? [...prev, option]
-                      : prev.filter((v) => v !== option),
-                  )
-                }
-              />
-              {option}
-            </label>
-          ))}
-          {field.allowOther && (
-            <label className="flex items-center gap-2 text-sm text-royal-800">
-              <input
-                type="checkbox"
-                name={field.id}
                 value={DROPDOWN_OTHER_VALUE}
+                checked={selected.includes(DROPDOWN_OTHER_VALUE)}
+                disabled={!selected.includes(DROPDOWN_OTHER_VALUE) && limitReached}
                 className="h-4 w-4 rounded border-royal-300"
                 onChange={(e) =>
                   setSelected((prev) =>
@@ -1155,6 +1431,46 @@ function DropdownFieldInput({ field }: { field: DropdownField }) {
                       : prev.filter((v) => v !== DROPDOWN_OTHER_VALUE),
                   )
                 }
+              />
+              Other
+            </label>
+          )}
+        </div>
+      ) : hasImages ? (
+        <div className="flex flex-col gap-2">
+          {options.map((option, i) => (
+            <label
+              key={i}
+              className="flex items-center gap-2 text-sm text-royal-800"
+            >
+              <input
+                type="radio"
+                name={field.id}
+                value={option.label}
+                required={field.required}
+                onChange={() => setSelected([option.label])}
+                className="h-4 w-4"
+              />
+              {option.imageDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={option.imageDataUrl}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded object-cover"
+                />
+              )}
+              {option.label}
+            </label>
+          ))}
+          {field.allowOther && (
+            <label className="flex items-center gap-2 text-sm text-royal-800">
+              <input
+                type="radio"
+                name={field.id}
+                value={DROPDOWN_OTHER_VALUE}
+                required={field.required}
+                onChange={() => setSelected([DROPDOWN_OTHER_VALUE])}
+                className="h-4 w-4"
               />
               Other
             </label>
@@ -1171,8 +1487,8 @@ function DropdownFieldInput({ field }: { field: DropdownField }) {
           <option value="" disabled>
             Select...
           </option>
-          {field.options.map((option, i) => (
-            <option key={i}>{option}</option>
+          {options.map((option, i) => (
+            <option key={i}>{option.label}</option>
           ))}
           {field.allowOther && (
             <option value={DROPDOWN_OTHER_VALUE}>Other</option>
@@ -1187,6 +1503,35 @@ function DropdownFieldInput({ field }: { field: DropdownField }) {
           placeholder="Please specify"
           className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
         />
+      )}
+
+      {zoomedImage && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+          onClick={() => setZoomedImage(null)}
+        >
+          <div
+            className="flex max-h-full max-w-full flex-col items-center gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={zoomedImage.url}
+              alt={zoomedImage.label}
+              className="max-h-[75vh] max-w-full rounded-lg object-contain shadow-2xl"
+            />
+            <p className="text-center text-sm font-medium text-white">
+              {zoomedImage.label}
+            </p>
+            <button
+              type="button"
+              onClick={() => setZoomedImage(null)}
+              className="rounded-full bg-white px-5 py-1.5 text-xs font-medium text-royal-700 hover:bg-royal-50"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1393,5 +1738,310 @@ function PlayerColumnInput({
       );
     case "photo":
       return <CompactPhotoUpload name={name} required={column.required} />;
+  }
+}
+
+function ButtonFieldRenderer({
+  field,
+}: {
+  field: Extract<FormField, { type: "button" }>;
+}) {
+  const [open, setOpen] = useState(false);
+  // "Committed" is what actually gets submitted with the form — it only
+  // ever changes on an explicit Save (or Reset) click, never just from
+  // typing in the popup. "Draft" is the popup's own working copy, seeded
+  // from committed each time it opens and thrown away on Close/backdrop
+  // click without ever touching committed.
+  const [committedValues, setCommittedValues] = useState<Record<string, string>>({});
+  const [committedFiles, setCommittedFiles] = useState<Record<string, File | null>>({});
+  const [draftValues, setDraftValues] = useState<Record<string, string>>({});
+  const [draftFiles, setDraftFiles] = useState<Record<string, File | null>>({});
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  const answered = field.fields.some((column) =>
+    column.type === "photo"
+      ? !!committedFiles[column.id]
+      : !!committedValues[column.id],
+  );
+
+  function openModal() {
+    setDraftValues(committedValues);
+    setDraftFiles(committedFiles);
+    setOpen(true);
+  }
+
+  function saveDraft() {
+    setCommittedValues(draftValues);
+    setCommittedFiles(draftFiles);
+    for (const column of field.fields) {
+      if (column.type !== "photo") continue;
+      const input = fileInputRefs.current[column.id];
+      if (!input) continue;
+      const file = draftFiles[column.id];
+      if (file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+      } else {
+        input.value = "";
+      }
+    }
+    setOpen(false);
+  }
+
+  function resetAnswers() {
+    setCommittedValues({});
+    setCommittedFiles({});
+    setDraftValues({});
+    setDraftFiles({});
+    for (const column of field.fields) {
+      if (column.type !== "photo") continue;
+      const input = fileInputRefs.current[column.id];
+      if (input) input.value = "";
+    }
+  }
+
+  useEffect(() => {
+    const formEl = rootRef.current?.closest("form");
+    if (!formEl) return;
+    const handleReset = () => {
+      setCommittedValues({});
+      setCommittedFiles({});
+      setDraftValues({});
+      setDraftFiles({});
+      setOpen(false);
+    };
+    formEl.addEventListener("reset", handleReset);
+    return () => formEl.removeEventListener("reset", handleReset);
+  }, []);
+
+  return (
+    <div ref={rootRef}>
+      <FieldCard field={field}>
+        <div className="flex flex-col items-start gap-2">
+          <button
+            type="button"
+            onClick={openModal}
+            className="rounded-lg transition-opacity hover:opacity-90"
+          >
+            {field.buttonStyle === "image" && field.buttonImageDataUrl ? (
+              <span className="flex flex-col items-center gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={field.buttonImageDataUrl}
+                  alt={field.buttonText || ""}
+                  className="h-20 w-20 rounded-lg border border-royal-100 object-cover"
+                />
+                {field.buttonText && (
+                  <span className="text-xs font-medium text-royal-600">
+                    {field.buttonText}
+                  </span>
+                )}
+              </span>
+            ) : (
+              <span className="inline-block rounded-full bg-royal-600 px-5 py-2 text-sm font-medium text-white hover:bg-royal-700">
+                {field.buttonText || "Click to answer"}
+              </span>
+            )}
+          </button>
+          <span
+            className={`text-xs font-medium ${
+              answered ? "text-green-600" : "text-royal-400"
+            }`}
+          >
+            {answered ? "Answered — tap to edit" : "Not answered yet"}
+          </span>
+        </div>
+      </FieldCard>
+
+      {/* The actual submitted inputs — driven only by committedValues/
+          committedFiles, never by what's currently being typed in the
+          popup below. */}
+      {field.fields.map((column) =>
+        column.type === "photo" ? (
+          <input
+            key={column.id}
+            ref={(el) => {
+              fileInputRefs.current[column.id] = el;
+            }}
+            type="file"
+            name={`${field.id}__${column.id}`}
+            className="hidden"
+          />
+        ) : (
+          <input
+            key={column.id}
+            type="hidden"
+            name={`${field.id}__${column.id}`}
+            value={committedValues[column.id] ?? ""}
+            readOnly
+          />
+        ),
+      )}
+
+      <div
+        className={
+          open
+            ? "fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+            : "hidden"
+        }
+        onClick={() => setOpen(false)}
+      >
+        <div
+          className="relative flex max-h-[85vh] w-full max-w-sm flex-col overflow-y-auto rounded-2xl bg-white p-5 shadow-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close"
+            className="absolute right-3 top-3 rounded-full p-1.5 text-royal-400 hover:bg-royal-50 hover:text-royal-700"
+          >
+            <X size={16} />
+          </button>
+          <h3 className="mb-3 pr-6 text-base font-semibold text-royal-950">
+            {field.label || "Untitled question"}
+          </h3>
+          {field.buttonStyle === "image" && field.buttonImageDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={field.buttonImageDataUrl}
+              alt={field.buttonText || ""}
+              className="mb-3 max-h-48 w-full rounded-lg border border-royal-100 object-contain"
+            />
+          )}
+          <div className="flex flex-col gap-3">
+            {field.fields.length === 0 && (
+              <p className="text-sm text-royal-400">Nothing to fill in yet.</p>
+            )}
+            {field.fields.map((column) => (
+              <div key={column.id} className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-royal-600">
+                  {column.label}
+                  {column.required && (
+                    <span className="ml-0.5 text-red-500">*</span>
+                  )}
+                </label>
+                <DraftColumnInput
+                  column={column}
+                  value={draftValues[column.id] ?? ""}
+                  onValueChange={(v) =>
+                    setDraftValues((prev) => ({ ...prev, [column.id]: v }))
+                  }
+                  file={draftFiles[column.id] ?? null}
+                  onFileChange={(f) =>
+                    setDraftFiles((prev) => ({ ...prev, [column.id]: f }))
+                  }
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={resetAnswers}
+              className="text-xs font-medium text-royal-400 hover:text-red-600"
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={saveDraft}
+              className="rounded-full bg-royal-600 px-5 py-2 text-sm font-medium text-white hover:bg-royal-700"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DraftColumnInput({
+  column,
+  value,
+  onValueChange,
+  file,
+  onFileChange,
+}: {
+  column: PlayerListColumn;
+  value: string;
+  onValueChange: (value: string) => void;
+  file: File | null;
+  onFileChange: (file: File | null) => void;
+}) {
+  switch (column.type) {
+    case "short-text":
+      return (
+        <input
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          className="w-full min-w-0 rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      );
+    case "number":
+      return (
+        <input
+          type="number"
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          className="w-full rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      );
+    case "dropdown":
+      return (
+        <select
+          value={value}
+          onChange={(e) => onValueChange(e.target.value)}
+          className="w-full rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        >
+          <option value="" disabled>
+            Select...
+          </option>
+          {(column.options ?? []).map((option, i) => (
+            <option key={i} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      );
+    case "checkbox":
+      return (
+        <div className="flex items-center gap-4 text-sm text-royal-800">
+          <label className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              checked={value === "Yes"}
+              onChange={() => onValueChange("Yes")}
+            />
+            Yes
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input
+              type="radio"
+              checked={value === "No"}
+              onChange={() => onValueChange("No")}
+            />
+            No
+          </label>
+        </div>
+      );
+    case "photo":
+      return (
+        <label className="flex cursor-pointer items-center gap-1.5 rounded-md border border-dashed border-royal-300 bg-royal-50/40 px-2.5 py-1.5 text-royal-500 transition-colors hover:bg-royal-50">
+          <Image size={14} />
+          <span className="max-w-[200px] truncate text-xs">
+            {file ? file.name : "Upload"}
+          </span>
+          <input
+            type="file"
+            accept="image/png,image/jpeg"
+            className="hidden"
+            onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
+          />
+        </label>
+      );
   }
 }

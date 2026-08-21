@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   DndContext,
@@ -16,10 +17,11 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import { ArrowLeft, Palette, Check, Copy, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ArrowLeft, Palette, Check, Copy, PanelLeftClose, PanelLeftOpen, Cloud, HardDrive, X } from "lucide-react";
 import { createField, getFieldTypeDef, type FieldTypeDef } from "@/lib/field-types";
 import type { FieldType, FormField } from "@/types/form-builder";
 import { DEFAULT_THEME, type FormTheme } from "@/types/theme";
+import { DEFAULT_CLOSING, type FormClosing } from "@/types/closing";
 import { FieldPalette } from "@/components/builder/FieldPalette";
 import { FormCanvas } from "@/components/builder/FormCanvas";
 import { FormRenderer } from "@/components/form/FormRenderer";
@@ -33,6 +35,7 @@ import {
   updateDraft,
   updateLiveForm,
   setMaintenanceMode,
+  type StorageChoice,
 } from "@/lib/form-actions";
 
 type ActiveDrag =
@@ -52,10 +55,14 @@ function NewFormPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const formId = searchParams.get("formId");
+  const { status: sessionStatus } = useSession();
 
   const [paletteOpen, setPaletteOpen] = useState(true);
   const [formTitle, setFormTitle] = useState("Untitled form");
   const [theme, setTheme] = useState<FormTheme>(DEFAULT_THEME);
+  const [closing, setClosing] = useState<FormClosing>(DEFAULT_CLOSING);
+  const [requireAccessCode, setRequireAccessCode] = useState(false);
+  const [accessUsernames, setAccessUsernames] = useState<string[]>([]);
   const [flowStep, setFlowStep] = useState<"design" | "build">("design");
   const [fields, setFields] = useState<FormField[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -67,6 +74,7 @@ function NewFormPageInner() {
   const [publishState, setPublishState] = useState<
     "idle" | "publishing" | "done" | "error"
   >("idle");
+  const [showStorageChoice, setShowStorageChoice] = useState(false);
   const [publishedSlug, setPublishedSlug] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
 
@@ -99,6 +107,9 @@ function NewFormPageInner() {
       setFormTitle(result.title);
       setFields(result.fields);
       setTheme(result.theme);
+      setClosing(result.closing);
+      setRequireAccessCode(result.requireAccessCode);
+      setAccessUsernames(result.accessUsernames);
       setFormStatus(
         result.status === "published" || result.status === "maintenance"
           ? result.status
@@ -126,6 +137,7 @@ function NewFormPageInner() {
     setFormTitle(draft.formTitle);
     setFields(draft.fields);
     setTheme(draft.theme);
+    setClosing(draft.closing ?? DEFAULT_CLOSING);
     setFlowStep(draft.flowStep);
     clearDraft();
   }, [formId]);
@@ -140,7 +152,7 @@ function NewFormPageInner() {
     setSavingState("saving");
     autosaveTimer.current = setTimeout(async () => {
       const save = formStatus === "draft" ? updateDraft : updateLiveForm;
-      const result = await save(formId, { title: formTitle, fields, theme });
+      const result = await save(formId, { title: formTitle, fields, theme, closing });
       if (result.ok) {
         if (result.title !== formTitle) setFormTitle(result.title);
         setSavingState("saved");
@@ -149,8 +161,7 @@ function NewFormPageInner() {
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isHydrated, formId, formStatus, formTitle, fields, theme]);
+  }, [isHydrated, formId, formStatus, formTitle, fields, theme, closing]);
 
   async function handleToggleMaintenance() {
     if (!formId || !formStatus || formStatus === "draft") return;
@@ -163,7 +174,23 @@ function NewFormPageInner() {
     }
   }
 
-  async function handlePublish() {
+  function handlePublish() {
+    // Check sign-in first so the admin only ever picks a storage option
+    // once — otherwise they'd choose one, get bounced to sign-in because
+    // they weren't authenticated yet, and have to re-choose after
+    // returning. sessionStatus can briefly be "loading" right after page
+    // load; treat that the same as signed-in and let publishWithStorage's
+    // own not-signed-in fallback catch the rare case it turns out wrong.
+    if (sessionStatus === "unauthenticated") {
+      saveDraft({ formTitle, fields, theme, flowStep, closing });
+      router.push("/login?callbackUrl=/admin/new");
+      return;
+    }
+    setShowStorageChoice(true);
+  }
+
+  async function publishWithStorage(storage: StorageChoice) {
+    setShowStorageChoice(false);
     setPublishState("publishing");
     setPublishError(null);
     const result = await publishForm({
@@ -171,13 +198,15 @@ function NewFormPageInner() {
       title: formTitle,
       fields,
       theme,
+      storage,
+      closing,
     });
     if (result.ok) {
       setPublishedSlug(result.slug);
       setPublishState("done");
       setFormStatus("published");
     } else if (result.error === "not-signed-in") {
-      saveDraft({ formTitle, fields, theme, flowStep });
+      saveDraft({ formTitle, fields, theme, flowStep, closing });
       router.push("/login?callbackUrl=/admin/new");
       return;
     } else {
@@ -304,8 +333,12 @@ function NewFormPageInner() {
           onTitleChange={setFormTitle}
           theme={theme}
           onThemeChange={setTheme}
+          closing={closing}
+          onClosingChange={setClosing}
           onContinue={() => setFlowStep("build")}
           formId={formId}
+          requireAccessCode={requireAccessCode}
+          accessUsernames={accessUsernames}
         />
       </div>
     );
@@ -417,7 +450,7 @@ function NewFormPageInner() {
 
       {mode === "preview" ? (
         <main>
-          <PageBackground background={theme.pageBackground} className="px-6 py-10">
+          <PageBackground background={theme.pageBackground} className="px-6 py-10" parallax>
             <div className="mx-auto max-w-3xl">
               <p className="mb-4 text-center text-xs font-medium text-royal-400">
                 This is what people filling out the form will see.
@@ -481,6 +514,86 @@ function NewFormPageInner() {
           </DragOverlay>
         </DndContext>
       )}
+
+      {showStorageChoice && (
+        <StorageChoiceModal
+          onClose={() => setShowStorageChoice(false)}
+          onChoose={publishWithStorage}
+        />
+      )}
+    </div>
+  );
+}
+
+function StorageChoiceModal({
+  onClose,
+  onChoose,
+}: {
+  onClose: () => void;
+  onChoose: (storage: StorageChoice) => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-royal-100 bg-white p-6 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-royal-950">
+            Where should responses be stored?
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded p-1 text-royal-300 hover:bg-royal-50 hover:text-royal-600"
+            aria-label="Close"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => onChoose("google")}
+            className="flex items-center gap-3 rounded-xl border border-royal-200 p-4 text-left transition-colors hover:border-royal-400 hover:bg-royal-50"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-royal-100 text-royal-600">
+              <Cloud size={20} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-royal-950">
+                Google Drive
+              </span>
+              <span className="block text-xs text-royal-500">
+                Creates a Sheet + Drive folder in your own Google account.
+              </span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onChoose("local")}
+            className="flex items-center gap-3 rounded-xl border border-royal-200 p-4 text-left transition-colors hover:border-royal-400 hover:bg-royal-50"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-royal-100 text-royal-600">
+              <HardDrive size={20} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-royal-950">
+                Store locally
+              </span>
+              <span className="block text-xs text-royal-500">
+                Keeps responses and files on this server — nothing goes
+                through Google. View them from Manage Forms.
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

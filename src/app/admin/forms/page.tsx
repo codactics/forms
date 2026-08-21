@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { ArrowLeft, ExternalLink, Pencil, Plus } from "lucide-react";
+import { ArrowLeft, ExternalLink, Pencil, Plus, Inbox, Users } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { UserMenu } from "@/components/UserMenu";
@@ -146,6 +146,24 @@ export default async function ManageFormsPage() {
                     <ExternalLink size={12} />
                     View
                   </a>
+                  {form.storageProvider === "local" && (
+                    <Link
+                      href={`/admin/forms/${form.id}/responses`}
+                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-royal-200 px-3 py-1.5 text-xs font-medium text-royal-600 hover:bg-royal-50"
+                    >
+                      <Inbox size={12} />
+                      Responses
+                    </Link>
+                  )}
+                  {form.requireAccessCode && (
+                    <Link
+                      href={`/admin/forms/${form.id}/access`}
+                      className="flex shrink-0 items-center gap-1.5 rounded-full border border-royal-200 px-3 py-1.5 text-xs font-medium text-royal-600 hover:bg-royal-50"
+                    >
+                      <Users size={12} />
+                      Users
+                    </Link>
+                  )}
                   <DeleteFormButton formId={form.id} formTitle={form.title} />
                 </div>
               ))}

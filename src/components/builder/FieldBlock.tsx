@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -19,15 +19,17 @@ import {
   PHOTO_COLUMN_DEF,
   type PlayerListColumnTypeDef,
 } from "@/lib/field-types";
-import type {
-  ComputedOperation,
-  ComputedTerm,
-  FormField,
-  PlayerListColumn,
+import {
+  normalizeDropdownOption,
+  type ComputedOperation,
+  type ComputedTerm,
+  type FormField,
+  type PlayerListColumn,
 } from "@/types/form-builder";
 import { wouldCreateCycle } from "@/lib/computed";
 import { Switch } from "./Switch";
 import { OptionListEditor } from "./OptionListEditor";
+import { DropdownOptionEditor } from "./DropdownOptionEditor";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
 
 export function FieldBlock({
@@ -134,6 +136,84 @@ export function FieldBlock({
           editable={selected}
         />
       </div>
+
+      {selected &&
+        field.type !== "computed" &&
+        field.type !== "player-list" &&
+        field.type !== "static-text" && (
+          <PopupSettings field={field} onChange={onChange} />
+        )}
+    </div>
+  );
+}
+
+function PopupSettings({
+  field,
+  onChange,
+}: {
+  field: FormField;
+  onChange: (field: FormField) => void;
+}) {
+  const popup = field.popup ?? { enabled: false, title: "", content: "" };
+  const isSectionBreak = field.type === "section-break";
+
+  return (
+    <div
+      className="mt-3 border-t border-royal-100 pt-3"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Switch
+        checked={popup.enabled}
+        onChange={(enabled) => onChange({ ...field, popup: { ...popup, enabled } })}
+        label={
+          isSectionBreak
+            ? "Show a popup when entering this section"
+            : "Show a popup when this field is focused"
+        }
+      />
+      {popup.enabled && (
+        <div className="mt-2 flex flex-col gap-2">
+          <Switch
+            checked={popup.repeat ?? false}
+            onChange={(repeat) => onChange({ ...field, popup: { ...popup, repeat } })}
+            label={
+              popup.repeat
+                ? "Shows every time"
+                : "Shows once per form-fill"
+            }
+          />
+          <input
+            value={popup.title}
+            onChange={(e) =>
+              onChange({ ...field, popup: { ...popup, title: e.target.value } })
+            }
+            placeholder="Popup title (optional)"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+          <textarea
+            value={popup.content}
+            onChange={(e) =>
+              onChange({ ...field, popup: { ...popup, content: e.target.value } })
+            }
+            rows={3}
+            placeholder="Popup message — markdown supported, e.g. **bold**, *italic*, links"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+          {popup.content && (
+            <div className="rounded-lg border border-royal-100 bg-royal-50/40 p-3">
+              <span className="mb-2 block text-[11px] font-medium text-royal-400">
+                Preview
+              </span>
+              {popup.title && (
+                <p className="mb-1 text-sm font-semibold text-royal-950">
+                  {popup.title}
+                </p>
+              )}
+              <MarkdownContent content={popup.content} />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -336,25 +416,55 @@ function FieldPreview({
             onChange={(allowMultiple) => onChange({ ...field, allowMultiple })}
             label="Allow multiple selections"
           />
+          {field.allowMultiple && (
+            <label className="flex items-center gap-2 text-xs font-medium text-royal-700">
+              Limit to at most
+              <input
+                type="number"
+                min={1}
+                max={field.options.length || undefined}
+                value={field.maxSelections ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    ...field,
+                    maxSelections: e.target.value
+                      ? Math.max(1, Number(e.target.value))
+                      : undefined,
+                  })
+                }
+                placeholder="No limit"
+                className="w-24 rounded-md border border-royal-200 bg-white px-2 py-1 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+              />
+              selections
+            </label>
+          )}
           <Switch
             checked={field.allowOther}
             onChange={(allowOther) => onChange({ ...field, allowOther })}
             label="Allow 'Other' (free text)"
           />
-          <OptionListEditor
-            options={field.options}
+          <DropdownOptionEditor
+            options={field.options.map(normalizeDropdownOption)}
             onChange={(options) => onChange({ ...field, options })}
           />
         </div>
       ) : field.allowMultiple ? (
         <div className="flex flex-col gap-1.5">
-          {field.options.map((option, i) => (
+          {field.options.map(normalizeDropdownOption).map((option, i) => (
             <label
               key={i}
               className="flex items-center gap-2 text-sm text-royal-400"
             >
               <input disabled type="checkbox" className="h-4 w-4 rounded" />
-              {option}
+              {option.imageDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={option.imageDataUrl}
+                  alt=""
+                  className="h-6 w-6 shrink-0 rounded object-cover"
+                />
+              )}
+              {option.label}
             </label>
           ))}
           {field.allowOther && (
@@ -369,7 +479,9 @@ function FieldPreview({
           disabled
           className="w-full max-w-sm rounded-md border border-royal-100 bg-royal-50/40 px-3 py-2 text-sm text-royal-400"
         >
-          <option>{field.options[0] ?? "Choose..."}</option>
+          <option>
+            {field.options[0] ? normalizeDropdownOption(field.options[0]).label : "Choose..."}
+          </option>
           {field.allowOther && <option>Other</option>}
         </select>
       );
@@ -527,6 +639,30 @@ function FieldPreview({
           {field.columns.length > 0 &&
             ` — ${field.columns.map((column) => column.label).join(" · ")}`}
         </p>
+      );
+    case "button":
+      return editable ? (
+        <ButtonFieldSettings field={field} onChange={onChange} />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {field.buttonStyle === "image" && field.buttonImageDataUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={field.buttonImageDataUrl}
+              alt={field.buttonText || ""}
+              className="h-16 w-16 rounded-lg border border-royal-100 object-cover"
+            />
+          ) : (
+            <span className="inline-flex w-fit items-center rounded-full bg-royal-600/90 px-4 py-2 text-sm font-medium text-white">
+              {field.buttonText || "Click to answer"}
+            </span>
+          )}
+          <p className="text-xs text-royal-400">
+            {field.fields.length === 0
+              ? "No fields configured yet"
+              : field.fields.map((f) => f.label).join(" · ")}
+          </p>
+        </div>
       );
     case "static-text":
       return editable ? (
@@ -900,6 +1036,192 @@ function PlayerListSettings({
           />
         </div>
       )}
+    </div>
+  );
+}
+
+const MAX_BUTTON_IMAGE_BYTES = 5 * 1024 * 1024;
+
+function ButtonFieldSettings({
+  field,
+  onChange,
+}: {
+  field: Extract<FormField, { type: "button" }>;
+  onChange: (field: FormField) => void;
+}) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function handleImageUpload(file: File) {
+    setError(null);
+    if (file.size > MAX_BUTTON_IMAGE_BYTES) {
+      setError("File is bigger than 5MB and can't be uploaded.");
+      return;
+    }
+    const reader = new FileReader();
+    setProgress(0);
+    reader.onprogress = (e) => {
+      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    reader.onload = () => {
+      onChange({ ...field, buttonImageDataUrl: reader.result as string });
+      setProgress(null);
+    };
+    reader.onerror = () => {
+      setError("Couldn't read that file. Please try again.");
+      setProgress(null);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function updateSubField(id: string, updates: Partial<PlayerListColumn>) {
+    onChange({
+      ...field,
+      fields: field.fields.map((f) =>
+        f.id === id ? ({ ...f, ...updates } as PlayerListColumn) : f,
+      ),
+    });
+  }
+
+  function removeSubField(id: string) {
+    onChange({ ...field, fields: field.fields.filter((f) => f.id !== id) });
+  }
+
+  function addSubField(def: PlayerListColumnTypeDef) {
+    onChange({ ...field, fields: [...field.fields, def.create()] });
+  }
+
+  const hasPhoto = field.fields.some((f) => f.type === "photo");
+
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-4 rounded-lg bg-royal-50/60 p-3"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-medium text-royal-700">Button style</span>
+        <div className="flex rounded-full border border-royal-200 bg-white p-0.5 text-xs font-medium">
+          <button
+            type="button"
+            onClick={() => onChange({ ...field, buttonStyle: "text" })}
+            className={`rounded-full px-3 py-1 transition-colors ${
+              field.buttonStyle === "text" ? "bg-royal-600 text-white" : "text-royal-600"
+            }`}
+          >
+            Text
+          </button>
+          <button
+            type="button"
+            onClick={() => onChange({ ...field, buttonStyle: "image" })}
+            className={`rounded-full px-3 py-1 transition-colors ${
+              field.buttonStyle === "image" ? "bg-royal-600 text-white" : "text-royal-600"
+            }`}
+          >
+            Image
+          </button>
+        </div>
+      </div>
+
+      {field.buttonStyle === "text" ? (
+        <input
+          value={field.buttonText}
+          onChange={(e) => onChange({ ...field, buttonText: e.target.value })}
+          placeholder="Button text, e.g. Add emergency contact"
+          className="w-full rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+        />
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-royal-300 bg-white text-royal-400 hover:bg-royal-50"
+              aria-label="Upload button image"
+            >
+              {field.buttonImageDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={field.buttonImageDataUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Image size={18} />
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImageUpload(file);
+                e.target.value = "";
+              }}
+            />
+            <input
+              value={field.buttonText}
+              onChange={(e) => onChange({ ...field, buttonText: e.target.value })}
+              placeholder="Caption shown under the image (optional)"
+              className="min-w-0 flex-1 rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+            />
+            {field.buttonImageDataUrl && (
+              <button
+                type="button"
+                onClick={() => onChange({ ...field, buttonImageDataUrl: undefined })}
+                className="shrink-0 text-[10px] font-medium text-royal-400 hover:text-red-600"
+              >
+                Remove image
+              </button>
+            )}
+          </div>
+          {progress !== null && (
+            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-royal-100">
+              <div
+                className="h-full rounded-full bg-royal-500 transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          )}
+          {error && <p className="text-[11px] font-medium text-red-600">{error}</p>}
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 border-t border-royal-100 pt-3">
+        <span className="text-xs font-medium text-royal-700">
+          Fields shown in the popup
+        </span>
+        {field.fields.length === 0 ? (
+          <p className="text-xs text-royal-400">
+            No fields yet — use "Add field" or "Add photo" below.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 items-start gap-3 sm:grid-cols-4">
+            {field.fields.map((f) => (
+              <PlayerListColumnCard
+                key={f.id}
+                column={f}
+                onChange={(updates) => updateSubField(f.id, updates)}
+                onRemove={() => removeSubField(f.id)}
+              />
+            ))}
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <AddFieldMenu onAdd={addSubField} />
+          <button
+            type="button"
+            disabled={hasPhoto}
+            onClick={() => addSubField(PHOTO_COLUMN_DEF)}
+            className="flex items-center gap-1.5 rounded-md border border-dashed border-royal-300 px-3 py-1.5 text-xs font-medium text-royal-600 hover:bg-royal-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus size={14} />
+            Add photo
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -11,8 +11,9 @@ datasource db {
 }
 
 // Control-plane data only: admin accounts and form definitions/routing.
-// Actual submissions and uploaded files are written to the admin's own
-// Google Sheet/Drive at submit time, never stored here.
+// Actual submissions and uploaded files go either to the admin's own
+// Google Sheet/Drive, or (if "local" storage is chosen) into this same
+// database + this server's own disk — never stored here otherwise.
 model Admin {
   id                 String   @id @default(cuid())
   email              String   @unique
@@ -34,9 +35,39 @@ model Form {
   status              String   @default("draft") // "draft" | "published"
   schema              String // JSON-encoded FormField[]
   theme               String // JSON-encoded FormTheme
+  storageProvider     String   @default("google") // "google" | "local"
   googleSheetId       String?
   googleDriveFolderId String?
+  closeMode           String? // null (open) | "deadline" | "manual"
+  closesAt            DateTime? // absolute UTC instant; only meaningful when closeMode = "deadline"
+  closeTimezoneLabel  String? // e.g. "Eastern Time (EST, UTC-05:00)" — for redisplay only, not used in the comparison
+  requireAccessCode   Boolean  @default(false)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
   publishedAt         DateTime?
+
+  submissions Submission[]
+  accessCodes FormAccessCode[]
+}
+
+// Per-visitor username/password pairs an admin can set up to gate access
+// to the public form. Passwords are never stored in plain text.
+model FormAccessCode {
+  id           String   @id @default(cuid())
+  formId       String
+  form         Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  username     String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@unique([formId, username])
+}
+
+// Only populated for forms published with storageProvider = "local".
+model Submission {
+  id          String   @id @default(cuid())
+  formId      String
+  form        Form     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  submittedAt DateTime @default(now())
+  dataJson    String // JSON-encoded { answers, playerListEntries }
 }

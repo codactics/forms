@@ -1,9 +1,22 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { recordSubmission } from "@/lib/google";
+import { recordSubmissionToLocal } from "@/lib/local-storage";
+import { verifyAccessToken, accessCookieName } from "@/lib/access-code";
+import { CLOSED_MESSAGE } from "@/types/closing";
 import type { FormField } from "@/types/form-builder";
 import type { SubmitState } from "@/types/submission";
+
+// The gate's unlock is only meant to last for one submission — clearing
+// the cookie here means a resubmission attempt (or any later visit) is
+// forced through AccessGate again, not just relying on the page never
+// trusting the cookie in the first place.
+async function clearAccessCookie(formId: string) {
+  const cookieStore = await cookies();
+  cookieStore.delete(accessCookieName(formId));
+}
 
 export async function submitFormAction(
   slug: string,
@@ -17,30 +30,73 @@ export async function submitFormAction(
       message: "This form isn't accepting responses right now.",
     };
   }
-  if (!form.googleSheetId || !form.googleDriveFolderId) {
+
+  // Re-checked here (not just on the page render) since a visitor could
+  // have had the form open before a deadline passed, or before the admin
+  // manually closed it, and still try to submit afterward.
+  const isClosed =
+    form.closeMode === "manual" ||
+    (form.closeMode === "deadline" &&
+      !!form.closesAt &&
+      new Date() > form.closesAt);
+  if (isClosed) {
     return {
       status: "error",
-      message:
-        "This form isn't fully set up yet. Please contact the organizer.",
+      message: CLOSED_MESSAGE,
     };
   }
 
-  const admin = await prisma.admin.findUnique({ where: { id: form.adminId } });
-  if (!admin?.googleRefreshToken) {
-    return {
-      status: "error",
-      message:
-        "This form isn't fully set up yet. Please contact the organizer.",
-    };
+  // Defense in depth: the public page already gates behind AccessGate, but
+  // a request could be sent directly to this action without ever passing
+  // through it.
+  let accessUsername: string | undefined;
+  if (form.requireAccessCode) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(accessCookieName(form.id))?.value;
+    const verified = token ? verifyAccessToken(token, form.id) : null;
+    if (!verified) {
+      return {
+        status: "error",
+        message: "Please sign in to this form before submitting.",
+      };
+    }
+    accessUsername = verified.username;
   }
+
+  const fields = JSON.parse(form.schema) as FormField[];
+
+  if (form.storageProvider === "local") {
+    try {
+      await recordSubmissionToLocal({ formId: form.id, fields, formData, accessUsername });
+    } catch (err) {
+      console.error("Local submission failed:", err);
+      return {
+        status: "error",
+        message: "Something went wrong submitting your response. Please try again.",
+      };
+    }
+    if (form.requireAccessCode) await clearAccessCookie(form.id);
+    return { status: "success" };
+  }
+
+  const notSetUp: SubmitState = {
+    status: "error",
+    message: "This form isn't fully set up yet. Please contact the organizer.",
+  };
+
+  if (!form.googleSheetId || !form.googleDriveFolderId) return notSetUp;
+
+  const admin = await prisma.admin.findUnique({ where: { id: form.adminId } });
+  if (!admin?.googleRefreshToken) return notSetUp;
 
   try {
     await recordSubmission({
       refreshToken: admin.googleRefreshToken,
       spreadsheetId: form.googleSheetId,
       formFolderId: form.googleDriveFolderId,
-      fields: JSON.parse(form.schema) as FormField[],
+      fields,
       formData,
+      accessUsername,
     });
   } catch (err) {
     console.error("Submission failed:", err);
@@ -50,5 +106,6 @@ export async function submitFormAction(
     };
   }
 
+  if (form.requireAccessCode) await clearAccessCookie(form.id);
   return { status: "success" };
 }

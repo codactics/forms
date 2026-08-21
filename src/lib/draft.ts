@@ -1,5 +1,6 @@
 import type { FormField } from "@/types/form-builder";
 import type { FormTheme } from "@/types/theme";
+import type { FormClosing } from "@/types/closing";
 
 const DRAFT_KEY = "codactics:draft";
 
@@ -8,6 +9,7 @@ export interface FormDraft {
   fields: FormField[];
   theme: FormTheme;
   flowStep: "design" | "build";
+  closing: FormClosing;
 }
 
 // Used to carry an in-progress form across the redirect to Google sign-in

@@ -32,8 +32,13 @@ export type FormMinAggregateOutputType = {
   status: string | null
   schema: string | null
   theme: string | null
+  storageProvider: string | null
   googleSheetId: string | null
   googleDriveFolderId: string | null
+  closeMode: string | null
+  closesAt: Date | null
+  closeTimezoneLabel: string | null
+  requireAccessCode: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
   publishedAt: Date | null
@@ -47,8 +52,13 @@ export type FormMaxAggregateOutputType = {
   status: string | null
   schema: string | null
   theme: string | null
+  storageProvider: string | null
   googleSheetId: string | null
   googleDriveFolderId: string | null
+  closeMode: string | null
+  closesAt: Date | null
+  closeTimezoneLabel: string | null
+  requireAccessCode: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
   publishedAt: Date | null
@@ -62,8 +72,13 @@ export type FormCountAggregateOutputType = {
   status: number
   schema: number
   theme: number
+  storageProvider: number
   googleSheetId: number
   googleDriveFolderId: number
+  closeMode: number
+  closesAt: number
+  closeTimezoneLabel: number
+  requireAccessCode: number
   createdAt: number
   updatedAt: number
   publishedAt: number
@@ -79,8 +94,13 @@ export type FormMinAggregateInputType = {
   status?: true
   schema?: true
   theme?: true
+  storageProvider?: true
   googleSheetId?: true
   googleDriveFolderId?: true
+  closeMode?: true
+  closesAt?: true
+  closeTimezoneLabel?: true
+  requireAccessCode?: true
   createdAt?: true
   updatedAt?: true
   publishedAt?: true
@@ -94,8 +114,13 @@ export type FormMaxAggregateInputType = {
   status?: true
   schema?: true
   theme?: true
+  storageProvider?: true
   googleSheetId?: true
   googleDriveFolderId?: true
+  closeMode?: true
+  closesAt?: true
+  closeTimezoneLabel?: true
+  requireAccessCode?: true
   createdAt?: true
   updatedAt?: true
   publishedAt?: true
@@ -109,8 +134,13 @@ export type FormCountAggregateInputType = {
   status?: true
   schema?: true
   theme?: true
+  storageProvider?: true
   googleSheetId?: true
   googleDriveFolderId?: true
+  closeMode?: true
+  closesAt?: true
+  closeTimezoneLabel?: true
+  requireAccessCode?: true
   createdAt?: true
   updatedAt?: true
   publishedAt?: true
@@ -197,8 +227,13 @@ export type FormGroupByOutputType = {
   status: string
   schema: string
   theme: string
+  storageProvider: string
   googleSheetId: string | null
   googleDriveFolderId: string | null
+  closeMode: string | null
+  closesAt: Date | null
+  closeTimezoneLabel: string | null
+  requireAccessCode: boolean
   createdAt: Date
   updatedAt: Date
   publishedAt: Date | null
@@ -233,12 +268,19 @@ export type FormWhereInput = {
   status?: Prisma.StringFilter<"Form"> | string
   schema?: Prisma.StringFilter<"Form"> | string
   theme?: Prisma.StringFilter<"Form"> | string
+  storageProvider?: Prisma.StringFilter<"Form"> | string
   googleSheetId?: Prisma.StringNullableFilter<"Form"> | string | null
   googleDriveFolderId?: Prisma.StringNullableFilter<"Form"> | string | null
+  closeMode?: Prisma.StringNullableFilter<"Form"> | string | null
+  closesAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
+  closeTimezoneLabel?: Prisma.StringNullableFilter<"Form"> | string | null
+  requireAccessCode?: Prisma.BoolFilter<"Form"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   publishedAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
   admin?: Prisma.XOR<Prisma.AdminScalarRelationFilter, Prisma.AdminWhereInput>
+  submissions?: Prisma.SubmissionListRelationFilter
+  accessCodes?: Prisma.FormAccessCodeListRelationFilter
 }
 
 export type FormOrderByWithRelationInput = {
@@ -249,12 +291,19 @@ export type FormOrderByWithRelationInput = {
   status?: Prisma.SortOrder
   schema?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  storageProvider?: Prisma.SortOrder
   googleSheetId?: Prisma.SortOrderInput | Prisma.SortOrder
   googleDriveFolderId?: Prisma.SortOrderInput | Prisma.SortOrder
+  closeMode?: Prisma.SortOrderInput | Prisma.SortOrder
+  closesAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  closeTimezoneLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  requireAccessCode?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   publishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   admin?: Prisma.AdminOrderByWithRelationInput
+  submissions?: Prisma.SubmissionOrderByRelationAggregateInput
+  accessCodes?: Prisma.FormAccessCodeOrderByRelationAggregateInput
 }
 
 export type FormWhereUniqueInput = Prisma.AtLeast<{
@@ -268,12 +317,19 @@ export type FormWhereUniqueInput = Prisma.AtLeast<{
   status?: Prisma.StringFilter<"Form"> | string
   schema?: Prisma.StringFilter<"Form"> | string
   theme?: Prisma.StringFilter<"Form"> | string
+  storageProvider?: Prisma.StringFilter<"Form"> | string
   googleSheetId?: Prisma.StringNullableFilter<"Form"> | string | null
   googleDriveFolderId?: Prisma.StringNullableFilter<"Form"> | string | null
+  closeMode?: Prisma.StringNullableFilter<"Form"> | string | null
+  closesAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
+  closeTimezoneLabel?: Prisma.StringNullableFilter<"Form"> | string | null
+  requireAccessCode?: Prisma.BoolFilter<"Form"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   publishedAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
   admin?: Prisma.XOR<Prisma.AdminScalarRelationFilter, Prisma.AdminWhereInput>
+  submissions?: Prisma.SubmissionListRelationFilter
+  accessCodes?: Prisma.FormAccessCodeListRelationFilter
 }, "id" | "slug">
 
 export type FormOrderByWithAggregationInput = {
@@ -284,8 +340,13 @@ export type FormOrderByWithAggregationInput = {
   status?: Prisma.SortOrder
   schema?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  storageProvider?: Prisma.SortOrder
   googleSheetId?: Prisma.SortOrderInput | Prisma.SortOrder
   googleDriveFolderId?: Prisma.SortOrderInput | Prisma.SortOrder
+  closeMode?: Prisma.SortOrderInput | Prisma.SortOrder
+  closesAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  closeTimezoneLabel?: Prisma.SortOrderInput | Prisma.SortOrder
+  requireAccessCode?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   publishedAt?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -305,8 +366,13 @@ export type FormScalarWhereWithAggregatesInput = {
   status?: Prisma.StringWithAggregatesFilter<"Form"> | string
   schema?: Prisma.StringWithAggregatesFilter<"Form"> | string
   theme?: Prisma.StringWithAggregatesFilter<"Form"> | string
+  storageProvider?: Prisma.StringWithAggregatesFilter<"Form"> | string
   googleSheetId?: Prisma.StringNullableWithAggregatesFilter<"Form"> | string | null
   googleDriveFolderId?: Prisma.StringNullableWithAggregatesFilter<"Form"> | string | null
+  closeMode?: Prisma.StringNullableWithAggregatesFilter<"Form"> | string | null
+  closesAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Form"> | Date | string | null
+  closeTimezoneLabel?: Prisma.StringNullableWithAggregatesFilter<"Form"> | string | null
+  requireAccessCode?: Prisma.BoolWithAggregatesFilter<"Form"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Form"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Form"> | Date | string
   publishedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"Form"> | Date | string | null
@@ -319,12 +385,19 @@ export type FormCreateInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
   admin: Prisma.AdminCreateNestedOneWithoutFormsInput
+  submissions?: Prisma.SubmissionCreateNestedManyWithoutFormInput
+  accessCodes?: Prisma.FormAccessCodeCreateNestedManyWithoutFormInput
 }
 
 export type FormUncheckedCreateInput = {
@@ -335,11 +408,18 @@ export type FormUncheckedCreateInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
+  submissions?: Prisma.SubmissionUncheckedCreateNestedManyWithoutFormInput
+  accessCodes?: Prisma.FormAccessCodeUncheckedCreateNestedManyWithoutFormInput
 }
 
 export type FormUpdateInput = {
@@ -349,12 +429,19 @@ export type FormUpdateInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   admin?: Prisma.AdminUpdateOneRequiredWithoutFormsNestedInput
+  submissions?: Prisma.SubmissionUpdateManyWithoutFormNestedInput
+  accessCodes?: Prisma.FormAccessCodeUpdateManyWithoutFormNestedInput
 }
 
 export type FormUncheckedUpdateInput = {
@@ -365,11 +452,18 @@ export type FormUncheckedUpdateInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  submissions?: Prisma.SubmissionUncheckedUpdateManyWithoutFormNestedInput
+  accessCodes?: Prisma.FormAccessCodeUncheckedUpdateManyWithoutFormNestedInput
 }
 
 export type FormCreateManyInput = {
@@ -380,8 +474,13 @@ export type FormCreateManyInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
@@ -394,8 +493,13 @@ export type FormUpdateManyMutationInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -409,8 +513,13 @@ export type FormUncheckedUpdateManyInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
@@ -434,8 +543,13 @@ export type FormCountOrderByAggregateInput = {
   status?: Prisma.SortOrder
   schema?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  storageProvider?: Prisma.SortOrder
   googleSheetId?: Prisma.SortOrder
   googleDriveFolderId?: Prisma.SortOrder
+  closeMode?: Prisma.SortOrder
+  closesAt?: Prisma.SortOrder
+  closeTimezoneLabel?: Prisma.SortOrder
+  requireAccessCode?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   publishedAt?: Prisma.SortOrder
@@ -449,8 +563,13 @@ export type FormMaxOrderByAggregateInput = {
   status?: Prisma.SortOrder
   schema?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  storageProvider?: Prisma.SortOrder
   googleSheetId?: Prisma.SortOrder
   googleDriveFolderId?: Prisma.SortOrder
+  closeMode?: Prisma.SortOrder
+  closesAt?: Prisma.SortOrder
+  closeTimezoneLabel?: Prisma.SortOrder
+  requireAccessCode?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   publishedAt?: Prisma.SortOrder
@@ -464,11 +583,21 @@ export type FormMinOrderByAggregateInput = {
   status?: Prisma.SortOrder
   schema?: Prisma.SortOrder
   theme?: Prisma.SortOrder
+  storageProvider?: Prisma.SortOrder
   googleSheetId?: Prisma.SortOrder
   googleDriveFolderId?: Prisma.SortOrder
+  closeMode?: Prisma.SortOrder
+  closesAt?: Prisma.SortOrder
+  closeTimezoneLabel?: Prisma.SortOrder
+  requireAccessCode?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   publishedAt?: Prisma.SortOrder
+}
+
+export type FormScalarRelationFilter = {
+  is?: Prisma.FormWhereInput
+  isNot?: Prisma.FormWhereInput
 }
 
 export type FormCreateNestedManyWithoutAdminInput = {
@@ -517,6 +646,38 @@ export type NullableDateTimeFieldUpdateOperationsInput = {
   set?: Date | string | null
 }
 
+export type BoolFieldUpdateOperationsInput = {
+  set?: boolean
+}
+
+export type FormCreateNestedOneWithoutAccessCodesInput = {
+  create?: Prisma.XOR<Prisma.FormCreateWithoutAccessCodesInput, Prisma.FormUncheckedCreateWithoutAccessCodesInput>
+  connectOrCreate?: Prisma.FormCreateOrConnectWithoutAccessCodesInput
+  connect?: Prisma.FormWhereUniqueInput
+}
+
+export type FormUpdateOneRequiredWithoutAccessCodesNestedInput = {
+  create?: Prisma.XOR<Prisma.FormCreateWithoutAccessCodesInput, Prisma.FormUncheckedCreateWithoutAccessCodesInput>
+  connectOrCreate?: Prisma.FormCreateOrConnectWithoutAccessCodesInput
+  upsert?: Prisma.FormUpsertWithoutAccessCodesInput
+  connect?: Prisma.FormWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.FormUpdateToOneWithWhereWithoutAccessCodesInput, Prisma.FormUpdateWithoutAccessCodesInput>, Prisma.FormUncheckedUpdateWithoutAccessCodesInput>
+}
+
+export type FormCreateNestedOneWithoutSubmissionsInput = {
+  create?: Prisma.XOR<Prisma.FormCreateWithoutSubmissionsInput, Prisma.FormUncheckedCreateWithoutSubmissionsInput>
+  connectOrCreate?: Prisma.FormCreateOrConnectWithoutSubmissionsInput
+  connect?: Prisma.FormWhereUniqueInput
+}
+
+export type FormUpdateOneRequiredWithoutSubmissionsNestedInput = {
+  create?: Prisma.XOR<Prisma.FormCreateWithoutSubmissionsInput, Prisma.FormUncheckedCreateWithoutSubmissionsInput>
+  connectOrCreate?: Prisma.FormCreateOrConnectWithoutSubmissionsInput
+  upsert?: Prisma.FormUpsertWithoutSubmissionsInput
+  connect?: Prisma.FormWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.FormUpdateToOneWithWhereWithoutSubmissionsInput, Prisma.FormUpdateWithoutSubmissionsInput>, Prisma.FormUncheckedUpdateWithoutSubmissionsInput>
+}
+
 export type FormCreateWithoutAdminInput = {
   id?: string
   slug: string
@@ -524,11 +685,18 @@ export type FormCreateWithoutAdminInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
+  submissions?: Prisma.SubmissionCreateNestedManyWithoutFormInput
+  accessCodes?: Prisma.FormAccessCodeCreateNestedManyWithoutFormInput
 }
 
 export type FormUncheckedCreateWithoutAdminInput = {
@@ -538,11 +706,18 @@ export type FormUncheckedCreateWithoutAdminInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
+  submissions?: Prisma.SubmissionUncheckedCreateNestedManyWithoutFormInput
+  accessCodes?: Prisma.FormAccessCodeUncheckedCreateNestedManyWithoutFormInput
 }
 
 export type FormCreateOrConnectWithoutAdminInput = {
@@ -581,11 +756,216 @@ export type FormScalarWhereInput = {
   status?: Prisma.StringFilter<"Form"> | string
   schema?: Prisma.StringFilter<"Form"> | string
   theme?: Prisma.StringFilter<"Form"> | string
+  storageProvider?: Prisma.StringFilter<"Form"> | string
   googleSheetId?: Prisma.StringNullableFilter<"Form"> | string | null
   googleDriveFolderId?: Prisma.StringNullableFilter<"Form"> | string | null
+  closeMode?: Prisma.StringNullableFilter<"Form"> | string | null
+  closesAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
+  closeTimezoneLabel?: Prisma.StringNullableFilter<"Form"> | string | null
+  requireAccessCode?: Prisma.BoolFilter<"Form"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Form"> | Date | string
   publishedAt?: Prisma.DateTimeNullableFilter<"Form"> | Date | string | null
+}
+
+export type FormCreateWithoutAccessCodesInput = {
+  id?: string
+  slug: string
+  title: string
+  status?: string
+  schema: string
+  theme: string
+  storageProvider?: string
+  googleSheetId?: string | null
+  googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  publishedAt?: Date | string | null
+  admin: Prisma.AdminCreateNestedOneWithoutFormsInput
+  submissions?: Prisma.SubmissionCreateNestedManyWithoutFormInput
+}
+
+export type FormUncheckedCreateWithoutAccessCodesInput = {
+  id?: string
+  adminId: string
+  slug: string
+  title: string
+  status?: string
+  schema: string
+  theme: string
+  storageProvider?: string
+  googleSheetId?: string | null
+  googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  publishedAt?: Date | string | null
+  submissions?: Prisma.SubmissionUncheckedCreateNestedManyWithoutFormInput
+}
+
+export type FormCreateOrConnectWithoutAccessCodesInput = {
+  where: Prisma.FormWhereUniqueInput
+  create: Prisma.XOR<Prisma.FormCreateWithoutAccessCodesInput, Prisma.FormUncheckedCreateWithoutAccessCodesInput>
+}
+
+export type FormUpsertWithoutAccessCodesInput = {
+  update: Prisma.XOR<Prisma.FormUpdateWithoutAccessCodesInput, Prisma.FormUncheckedUpdateWithoutAccessCodesInput>
+  create: Prisma.XOR<Prisma.FormCreateWithoutAccessCodesInput, Prisma.FormUncheckedCreateWithoutAccessCodesInput>
+  where?: Prisma.FormWhereInput
+}
+
+export type FormUpdateToOneWithWhereWithoutAccessCodesInput = {
+  where?: Prisma.FormWhereInput
+  data: Prisma.XOR<Prisma.FormUpdateWithoutAccessCodesInput, Prisma.FormUncheckedUpdateWithoutAccessCodesInput>
+}
+
+export type FormUpdateWithoutAccessCodesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  schema?: Prisma.StringFieldUpdateOperationsInput | string
+  theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
+  googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  admin?: Prisma.AdminUpdateOneRequiredWithoutFormsNestedInput
+  submissions?: Prisma.SubmissionUpdateManyWithoutFormNestedInput
+}
+
+export type FormUncheckedUpdateWithoutAccessCodesInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  adminId?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  schema?: Prisma.StringFieldUpdateOperationsInput | string
+  theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
+  googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  submissions?: Prisma.SubmissionUncheckedUpdateManyWithoutFormNestedInput
+}
+
+export type FormCreateWithoutSubmissionsInput = {
+  id?: string
+  slug: string
+  title: string
+  status?: string
+  schema: string
+  theme: string
+  storageProvider?: string
+  googleSheetId?: string | null
+  googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  publishedAt?: Date | string | null
+  admin: Prisma.AdminCreateNestedOneWithoutFormsInput
+  accessCodes?: Prisma.FormAccessCodeCreateNestedManyWithoutFormInput
+}
+
+export type FormUncheckedCreateWithoutSubmissionsInput = {
+  id?: string
+  adminId: string
+  slug: string
+  title: string
+  status?: string
+  schema: string
+  theme: string
+  storageProvider?: string
+  googleSheetId?: string | null
+  googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  publishedAt?: Date | string | null
+  accessCodes?: Prisma.FormAccessCodeUncheckedCreateNestedManyWithoutFormInput
+}
+
+export type FormCreateOrConnectWithoutSubmissionsInput = {
+  where: Prisma.FormWhereUniqueInput
+  create: Prisma.XOR<Prisma.FormCreateWithoutSubmissionsInput, Prisma.FormUncheckedCreateWithoutSubmissionsInput>
+}
+
+export type FormUpsertWithoutSubmissionsInput = {
+  update: Prisma.XOR<Prisma.FormUpdateWithoutSubmissionsInput, Prisma.FormUncheckedUpdateWithoutSubmissionsInput>
+  create: Prisma.XOR<Prisma.FormCreateWithoutSubmissionsInput, Prisma.FormUncheckedCreateWithoutSubmissionsInput>
+  where?: Prisma.FormWhereInput
+}
+
+export type FormUpdateToOneWithWhereWithoutSubmissionsInput = {
+  where?: Prisma.FormWhereInput
+  data: Prisma.XOR<Prisma.FormUpdateWithoutSubmissionsInput, Prisma.FormUncheckedUpdateWithoutSubmissionsInput>
+}
+
+export type FormUpdateWithoutSubmissionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  schema?: Prisma.StringFieldUpdateOperationsInput | string
+  theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
+  googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  admin?: Prisma.AdminUpdateOneRequiredWithoutFormsNestedInput
+  accessCodes?: Prisma.FormAccessCodeUpdateManyWithoutFormNestedInput
+}
+
+export type FormUncheckedUpdateWithoutSubmissionsInput = {
+  id?: Prisma.StringFieldUpdateOperationsInput | string
+  adminId?: Prisma.StringFieldUpdateOperationsInput | string
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
+  schema?: Prisma.StringFieldUpdateOperationsInput | string
+  theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
+  googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  accessCodes?: Prisma.FormAccessCodeUncheckedUpdateManyWithoutFormNestedInput
 }
 
 export type FormCreateManyAdminInput = {
@@ -595,8 +975,13 @@ export type FormCreateManyAdminInput = {
   status?: string
   schema: string
   theme: string
+  storageProvider?: string
   googleSheetId?: string | null
   googleDriveFolderId?: string | null
+  closeMode?: string | null
+  closesAt?: Date | string | null
+  closeTimezoneLabel?: string | null
+  requireAccessCode?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   publishedAt?: Date | string | null
@@ -609,11 +994,18 @@ export type FormUpdateWithoutAdminInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  submissions?: Prisma.SubmissionUpdateManyWithoutFormNestedInput
+  accessCodes?: Prisma.FormAccessCodeUpdateManyWithoutFormNestedInput
 }
 
 export type FormUncheckedUpdateWithoutAdminInput = {
@@ -623,11 +1015,18 @@ export type FormUncheckedUpdateWithoutAdminInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  submissions?: Prisma.SubmissionUncheckedUpdateManyWithoutFormNestedInput
+  accessCodes?: Prisma.FormAccessCodeUncheckedUpdateManyWithoutFormNestedInput
 }
 
 export type FormUncheckedUpdateManyWithoutAdminInput = {
@@ -637,13 +1036,56 @@ export type FormUncheckedUpdateManyWithoutAdminInput = {
   status?: Prisma.StringFieldUpdateOperationsInput | string
   schema?: Prisma.StringFieldUpdateOperationsInput | string
   theme?: Prisma.StringFieldUpdateOperationsInput | string
+  storageProvider?: Prisma.StringFieldUpdateOperationsInput | string
   googleSheetId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   googleDriveFolderId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closeMode?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  closesAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  closeTimezoneLabel?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  requireAccessCode?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   publishedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
 }
 
+
+/**
+ * Count Type FormCountOutputType
+ */
+
+export type FormCountOutputType = {
+  submissions: number
+  accessCodes: number
+}
+
+export type FormCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  submissions?: boolean | FormCountOutputTypeCountSubmissionsArgs
+  accessCodes?: boolean | FormCountOutputTypeCountAccessCodesArgs
+}
+
+/**
+ * FormCountOutputType without action
+ */
+export type FormCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the FormCountOutputType
+   */
+  select?: Prisma.FormCountOutputTypeSelect<ExtArgs> | null
+}
+
+/**
+ * FormCountOutputType without action
+ */
+export type FormCountOutputTypeCountSubmissionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.SubmissionWhereInput
+}
+
+/**
+ * FormCountOutputType without action
+ */
+export type FormCountOutputTypeCountAccessCodesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.FormAccessCodeWhereInput
+}
 
 
 export type FormSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -654,12 +1096,20 @@ export type FormSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   status?: boolean
   schema?: boolean
   theme?: boolean
+  storageProvider?: boolean
   googleSheetId?: boolean
   googleDriveFolderId?: boolean
+  closeMode?: boolean
+  closesAt?: boolean
+  closeTimezoneLabel?: boolean
+  requireAccessCode?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   publishedAt?: boolean
   admin?: boolean | Prisma.AdminDefaultArgs<ExtArgs>
+  submissions?: boolean | Prisma.Form$submissionsArgs<ExtArgs>
+  accessCodes?: boolean | Prisma.Form$accessCodesArgs<ExtArgs>
+  _count?: boolean | Prisma.FormCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["form"]>
 
 export type FormSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
@@ -670,8 +1120,13 @@ export type FormSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   status?: boolean
   schema?: boolean
   theme?: boolean
+  storageProvider?: boolean
   googleSheetId?: boolean
   googleDriveFolderId?: boolean
+  closeMode?: boolean
+  closesAt?: boolean
+  closeTimezoneLabel?: boolean
+  requireAccessCode?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   publishedAt?: boolean
@@ -686,8 +1141,13 @@ export type FormSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   status?: boolean
   schema?: boolean
   theme?: boolean
+  storageProvider?: boolean
   googleSheetId?: boolean
   googleDriveFolderId?: boolean
+  closeMode?: boolean
+  closesAt?: boolean
+  closeTimezoneLabel?: boolean
+  requireAccessCode?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   publishedAt?: boolean
@@ -702,16 +1162,24 @@ export type FormSelectScalar = {
   status?: boolean
   schema?: boolean
   theme?: boolean
+  storageProvider?: boolean
   googleSheetId?: boolean
   googleDriveFolderId?: boolean
+  closeMode?: boolean
+  closesAt?: boolean
+  closeTimezoneLabel?: boolean
+  requireAccessCode?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   publishedAt?: boolean
 }
 
-export type FormOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "adminId" | "slug" | "title" | "status" | "schema" | "theme" | "googleSheetId" | "googleDriveFolderId" | "createdAt" | "updatedAt" | "publishedAt", ExtArgs["result"]["form"]>
+export type FormOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "adminId" | "slug" | "title" | "status" | "schema" | "theme" | "storageProvider" | "googleSheetId" | "googleDriveFolderId" | "closeMode" | "closesAt" | "closeTimezoneLabel" | "requireAccessCode" | "createdAt" | "updatedAt" | "publishedAt", ExtArgs["result"]["form"]>
 export type FormInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   admin?: boolean | Prisma.AdminDefaultArgs<ExtArgs>
+  submissions?: boolean | Prisma.Form$submissionsArgs<ExtArgs>
+  accessCodes?: boolean | Prisma.Form$accessCodesArgs<ExtArgs>
+  _count?: boolean | Prisma.FormCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type FormIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   admin?: boolean | Prisma.AdminDefaultArgs<ExtArgs>
@@ -724,6 +1192,8 @@ export type $FormPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   name: "Form"
   objects: {
     admin: Prisma.$AdminPayload<ExtArgs>
+    submissions: Prisma.$SubmissionPayload<ExtArgs>[]
+    accessCodes: Prisma.$FormAccessCodePayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -733,8 +1203,13 @@ export type $FormPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     status: string
     schema: string
     theme: string
+    storageProvider: string
     googleSheetId: string | null
     googleDriveFolderId: string | null
+    closeMode: string | null
+    closesAt: Date | null
+    closeTimezoneLabel: string | null
+    requireAccessCode: boolean
     createdAt: Date
     updatedAt: Date
     publishedAt: Date | null
@@ -1133,6 +1608,8 @@ readonly fields: FormFieldRefs;
 export interface Prisma__FormClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   admin<T extends Prisma.AdminDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.AdminDefaultArgs<ExtArgs>>): Prisma.Prisma__AdminClient<runtime.Types.Result.GetResult<Prisma.$AdminPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  submissions<T extends Prisma.Form$submissionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Form$submissionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$SubmissionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  accessCodes<T extends Prisma.Form$accessCodesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Form$accessCodesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$FormAccessCodePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1169,8 +1646,13 @@ export interface FormFieldRefs {
   readonly status: Prisma.FieldRef<"Form", 'String'>
   readonly schema: Prisma.FieldRef<"Form", 'String'>
   readonly theme: Prisma.FieldRef<"Form", 'String'>
+  readonly storageProvider: Prisma.FieldRef<"Form", 'String'>
   readonly googleSheetId: Prisma.FieldRef<"Form", 'String'>
   readonly googleDriveFolderId: Prisma.FieldRef<"Form", 'String'>
+  readonly closeMode: Prisma.FieldRef<"Form", 'String'>
+  readonly closesAt: Prisma.FieldRef<"Form", 'DateTime'>
+  readonly closeTimezoneLabel: Prisma.FieldRef<"Form", 'String'>
+  readonly requireAccessCode: Prisma.FieldRef<"Form", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"Form", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Form", 'DateTime'>
   readonly publishedAt: Prisma.FieldRef<"Form", 'DateTime'>
@@ -1570,6 +2052,54 @@ export type FormDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.Internal
    * Limit how many Forms to delete.
    */
   limit?: number
+}
+
+/**
+ * Form.submissions
+ */
+export type Form$submissionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the Submission
+   */
+  select?: Prisma.SubmissionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the Submission
+   */
+  omit?: Prisma.SubmissionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.SubmissionInclude<ExtArgs> | null
+  where?: Prisma.SubmissionWhereInput
+  orderBy?: Prisma.SubmissionOrderByWithRelationInput | Prisma.SubmissionOrderByWithRelationInput[]
+  cursor?: Prisma.SubmissionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.SubmissionScalarFieldEnum | Prisma.SubmissionScalarFieldEnum[]
+}
+
+/**
+ * Form.accessCodes
+ */
+export type Form$accessCodesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the FormAccessCode
+   */
+  select?: Prisma.FormAccessCodeSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the FormAccessCode
+   */
+  omit?: Prisma.FormAccessCodeOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.FormAccessCodeInclude<ExtArgs> | null
+  where?: Prisma.FormAccessCodeWhereInput
+  orderBy?: Prisma.FormAccessCodeOrderByWithRelationInput | Prisma.FormAccessCodeOrderByWithRelationInput[]
+  cursor?: Prisma.FormAccessCodeWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.FormAccessCodeScalarFieldEnum | Prisma.FormAccessCodeScalarFieldEnum[]
 }
 
 /**

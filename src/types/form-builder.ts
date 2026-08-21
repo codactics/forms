@@ -16,13 +16,27 @@ export type FieldType =
   | "signature"
   | "section-break"
   | "rating"
-  | "computed";
+  | "computed"
+  | "button";
+
+export interface FieldPopup {
+  enabled: boolean;
+  title: string;
+  content: string; // markdown
+  // false (default): shown once per form-fill session. true: shown every
+  // time the trigger fires (every focus, or every Next into the section).
+  repeat?: boolean;
+}
 
 interface FieldBase {
   id: string;
   type: FieldType;
   label: string;
   required: boolean;
+  // For most field types: fires on focus. For "section-break": fires when
+  // the respondent advances into this section via Next. See FieldPopup's
+  // "repeat" for whether that's once per session or every time.
+  popup?: FieldPopup;
 }
 
 export interface ShortTextField extends FieldBase {
@@ -43,11 +57,27 @@ export interface PhotoField extends FieldBase {
   type: "photo";
 }
 
+export interface DropdownOption {
+  label: string;
+  imageDataUrl?: string; // optional thumbnail — never required
+}
+
+// Forms saved before per-option images existed stored options as plain
+// strings — normalize either shape to the same object form wherever
+// options are read, rather than migrating old data.
+export function normalizeDropdownOption(
+  raw: string | DropdownOption,
+): DropdownOption {
+  return typeof raw === "string" ? { label: raw } : raw;
+}
+
 export interface DropdownField extends FieldBase {
   type: "dropdown";
-  options: string[];
+  options: DropdownOption[];
   allowMultiple: boolean;
   allowOther: boolean;
+  // Only meaningful when allowMultiple is true. undefined/0 = no limit.
+  maxSelections?: number;
 }
 
 export interface CheckboxField extends FieldBase {
@@ -145,6 +175,17 @@ export interface ComputedField extends FieldBase {
   showOnForm: boolean;
 }
 
+// A button the respondent clicks to open a small popup form (built from the
+// same column types as a Repeating list's columns) — used for things like
+// an optional "Add emergency contact" detail that most people can skip.
+export interface ButtonField extends FieldBase {
+  type: "button";
+  buttonStyle: "text" | "image";
+  buttonText: string;
+  buttonImageDataUrl?: string;
+  fields: PlayerListColumn[];
+}
+
 export type FormField =
   | ShortTextField
   | LongTextField
@@ -163,4 +204,5 @@ export type FormField =
   | SignatureField
   | SectionBreakField
   | RatingField
-  | ComputedField;
+  | ComputedField
+  | ButtonField;

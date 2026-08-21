@@ -10,4 +10,6 @@
  */
 export type * from './models/Admin'
 export type * from './models/Form'
+export type * from './models/FormAccessCode'
+export type * from './models/Submission'
 export type * from './commonInputTypes'

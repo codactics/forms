@@ -51,3 +51,13 @@ export type Admin = Prisma.AdminModel
  * 
  */
 export type Form = Prisma.FormModel
+/**
+ * Model FormAccessCode
+ * 
+ */
+export type FormAccessCode = Prisma.FormAccessCodeModel
+/**
+ * Model Submission
+ * 
+ */
+export type Submission = Prisma.SubmissionModel

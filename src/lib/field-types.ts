@@ -17,6 +17,7 @@ import {
   SeparatorHorizontal,
   Star,
   Calculator,
+  MousePointerClick,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -157,7 +158,7 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
       type: "dropdown",
       label: "Untitled question",
       required: false,
-      options: ["Option 1", "Option 2"],
+      options: [{ label: "Option 1" }, { label: "Option 2" }],
       allowMultiple: false,
       allowOther: false,
     }),
@@ -270,6 +271,21 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
       layout: "row",
       playerCount: 5,
       columns: [],
+    }),
+  },
+  {
+    type: "button",
+    label: "Button",
+    description: "A button that opens a small popup form when clicked, e.g. optional extra details",
+    icon: MousePointerClick,
+    create: () => ({
+      id: createId(),
+      type: "button",
+      label: "Untitled question",
+      required: false,
+      buttonStyle: "text",
+      buttonText: "Click to answer",
+      fields: [],
     }),
   },
 ];

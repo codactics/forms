@@ -2,18 +2,76 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { publishFormToGoogle, syncSheetColumns } from "@/lib/google";
+import { publishFormToGoogle, syncSheetColumns, uploadSchemaImages } from "@/lib/google";
+import { saveSchemaImagesLocally } from "@/lib/local-storage";
 import { slugify } from "@/lib/slug";
 import { generateUniqueTitle } from "@/lib/form-naming";
 import { MAX_DRAFTS_PER_ADMIN, MAX_PUBLISHED_PER_ADMIN } from "@/lib/form-limits";
+import { localToUtcInstant, getTimezoneOffset, utcInstantToLocal } from "@/lib/timezones";
+import { hashPassword } from "@/lib/access-code";
 import type { FormField } from "@/types/form-builder";
 import { DEFAULT_THEME, type FormTheme } from "@/types/theme";
+import { DEFAULT_CLOSING, type FormClosing } from "@/types/closing";
+
+export type StorageChoice = "google" | "local";
+
+// Computes the { closeMode, closesAt, closeTimezoneLabel } columns from the
+// builder's FormClosing state. An incomplete "deadline" pick (date/time not
+// both filled in yet) is saved as if it were "open", rather than half-
+// applying a closing that isn't actually configured.
+function closingToDbFields(closing: FormClosing) {
+  if (closing.mode === "manual") {
+    return { closeMode: "manual", closesAt: null, closeTimezoneLabel: null };
+  }
+  if (closing.mode === "deadline" && closing.dateStr && closing.timeStr) {
+    const closesAt = localToUtcInstant(
+      closing.dateStr,
+      closing.timeStr,
+      getTimezoneOffset(closing.timezoneId),
+    );
+    if (closesAt) {
+      return {
+        closeMode: "deadline",
+        closesAt,
+        closeTimezoneLabel: closing.timezoneId,
+      };
+    }
+  }
+  return { closeMode: null, closesAt: null, closeTimezoneLabel: null };
+}
+
+function dbFieldsToClosing(form: {
+  closeMode: string | null;
+  closesAt: Date | null;
+  closeTimezoneLabel: string | null;
+}): FormClosing {
+  if (form.closeMode === "manual") {
+    return { ...DEFAULT_CLOSING, mode: "manual" };
+  }
+  if (form.closeMode === "deadline" && form.closesAt && form.closeTimezoneLabel) {
+    const { dateStr, timeStr } = utcInstantToLocal(
+      form.closesAt,
+      getTimezoneOffset(form.closeTimezoneLabel),
+    );
+    return { mode: "deadline", dateStr, timeStr, timezoneId: form.closeTimezoneLabel };
+  }
+  return DEFAULT_CLOSING;
+}
+
+// A single-line <input> normally can't have a newline typed into it, but a
+// pasted clipboard value can still carry one through on some browsers —
+// and a title with an embedded line break wrecks the PDF export's header
+// (which draws it as one fixed-position line, not through the wrapping
+// logic used elsewhere). Collapse any whitespace run, newlines included,
+// into a single space before ever saving it.
+function sanitizeTitle(raw: string): string {
+  return raw.replace(/\s+/g, " ").trim();
+}
 
 async function uniqueSlugFor(title: string, excludeFormId?: string) {
   const base = slugify(title);
   let slug = base;
   let n = 1;
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const clash = await prisma.form.findUnique({ where: { slug } });
     if (!clash || clash.id === excludeFormId) return slug;
@@ -60,7 +118,7 @@ export type UpdateDraftResult =
 
 export async function updateDraft(
   formId: string,
-  input: { title: string; fields: FormField[]; theme: FormTheme },
+  input: { title: string; fields: FormField[]; theme: FormTheme; closing: FormClosing },
 ): Promise<UpdateDraftResult> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false, error: "not-signed-in" };
@@ -70,7 +128,7 @@ export async function updateDraft(
     return { ok: false, error: "not-found" };
   }
 
-  const rawTitle = input.title.trim() || "Untitled";
+  const rawTitle = sanitizeTitle(input.title) || "Untitled";
   const title = await generateUniqueTitle(session.user.id, rawTitle, formId);
 
   await prisma.form.update({
@@ -79,6 +137,7 @@ export async function updateDraft(
       title,
       schema: JSON.stringify(input.fields),
       theme: JSON.stringify(input.theme),
+      ...closingToDbFields(input.closing),
     },
   });
 
@@ -127,7 +186,7 @@ export type UpdateLiveFormResult =
 // a column, so data already collected under the old field list is untouched.
 export async function updateLiveForm(
   formId: string,
-  input: { title: string; fields: FormField[]; theme: FormTheme },
+  input: { title: string; fields: FormField[]; theme: FormTheme; closing: FormClosing },
 ): Promise<UpdateLiveFormResult> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false, error: "not-signed-in" };
@@ -137,40 +196,65 @@ export async function updateLiveForm(
     !existing ||
     existing.adminId !== session.user.id ||
     existing.status === "draft" ||
-    !existing.googleSheetId
+    (existing.storageProvider === "google" && !existing.googleSheetId)
   ) {
     return { ok: false, error: "not-found" };
   }
 
-  const admin = await prisma.admin.findUnique({
-    where: { id: session.user.id },
-  });
-  if (!admin?.googleRefreshToken) {
-    return { ok: false, error: "not-found" };
-  }
-
-  const rawTitle = input.title.trim() || "Untitled";
+  const rawTitle = sanitizeTitle(input.title) || "Untitled";
   const title = await generateUniqueTitle(session.user.id, rawTitle, formId);
 
-  try {
-    await syncSheetColumns({
-      refreshToken: admin.googleRefreshToken,
-      spreadsheetId: existing.googleSheetId,
-      fields: input.fields,
+  // Only the Sheet has a shared header to keep in sync as fields change —
+  // locally-stored submissions are each a self-contained JSON row, so
+  // there's nothing equivalent to sync there.
+  let fields = input.fields;
+  if (existing.storageProvider === "google" && existing.googleSheetId) {
+    const admin = await prisma.admin.findUnique({
+      where: { id: session.user.id },
     });
-  } catch (err) {
-    // Don't block saving the form definition itself just because a
-    // transient Google API error kept the sheet from syncing — the admin's
-    // edits (and what visitors see) should still save.
-    console.error("Sheet column sync failed:", err);
+    if (!admin?.googleRefreshToken) {
+      return { ok: false, error: "not-found" };
+    }
+    try {
+      await syncSheetColumns({
+        refreshToken: admin.googleRefreshToken,
+        spreadsheetId: existing.googleSheetId,
+        fields: input.fields,
+      });
+    } catch (err) {
+      // Don't block saving the form definition itself just because a
+      // transient Google API error kept the sheet from syncing — the
+      // admin's edits (and what visitors see) should still save.
+      console.error("Sheet column sync failed:", err);
+    }
+    if (existing.googleDriveFolderId) {
+      try {
+        fields = await uploadSchemaImages({
+          refreshToken: admin.googleRefreshToken,
+          formFolderId: existing.googleDriveFolderId,
+          fields: input.fields,
+        });
+      } catch (err) {
+        // Same reasoning as the sheet sync above — keep whatever base64
+        // image was already there rather than blocking the save.
+        console.error("Schema image upload failed:", err);
+      }
+    }
+  } else if (existing.storageProvider === "local") {
+    try {
+      fields = await saveSchemaImagesLocally(formId, input.fields);
+    } catch (err) {
+      console.error("Schema image local-save failed:", err);
+    }
   }
 
   await prisma.form.update({
     where: { id: formId },
     data: {
       title,
-      schema: JSON.stringify(input.fields),
+      schema: JSON.stringify(fields),
       theme: JSON.stringify(input.theme),
+      ...closingToDbFields(input.closing),
     },
   });
 
@@ -207,6 +291,9 @@ export type LoadFormResult =
       fields: FormField[];
       theme: FormTheme;
       status: string;
+      closing: FormClosing;
+      requireAccessCode: boolean;
+      accessUsernames: string[];
     }
   | { ok: false; error: "not-signed-in" | "not-found" };
 
@@ -214,7 +301,10 @@ export async function loadForm(formId: string): Promise<LoadFormResult> {
   const session = await auth();
   if (!session?.user?.id) return { ok: false, error: "not-signed-in" };
 
-  const form = await prisma.form.findUnique({ where: { id: formId } });
+  const form = await prisma.form.findUnique({
+    where: { id: formId },
+    include: { accessCodes: { select: { username: true }, orderBy: { createdAt: "asc" } } },
+  });
   if (!form || form.adminId !== session.user.id) {
     return { ok: false, error: "not-found" };
   }
@@ -225,7 +315,73 @@ export async function loadForm(formId: string): Promise<LoadFormResult> {
     fields: JSON.parse(form.schema) as FormField[],
     theme: JSON.parse(form.theme) as FormTheme,
     status: form.status,
+    closing: dbFieldsToClosing(form),
+    requireAccessCode: form.requireAccessCode,
+    accessUsernames: form.accessCodes.map((c) => c.username),
   };
+}
+
+export type SaveAccessCodesResult =
+  | { ok: true }
+  | { ok: false; error: "not-signed-in" | "not-found" | "missing-password" | "duplicate-username" };
+
+// Kept separate from the main autosave (title/fields/theme/closing) since
+// this involves hashing new passwords — no reason to redo that work on
+// every unrelated keystroke, and a password field shouldn't silently
+// resubmit itself on a debounce timer the way a text label safely can.
+export async function saveAccessCodes(
+  formId: string,
+  requireAccessCode: boolean,
+  codes: { username: string; password?: string }[],
+): Promise<SaveAccessCodesResult> {
+  const session = await auth();
+  if (!session?.user?.id) return { ok: false, error: "not-signed-in" };
+
+  const form = await prisma.form.findUnique({ where: { id: formId } });
+  if (!form || form.adminId !== session.user.id) {
+    return { ok: false, error: "not-found" };
+  }
+
+  const trimmed = codes
+    .map((c) => ({ username: c.username.trim(), password: c.password?.trim() || undefined }))
+    .filter((c) => c.username);
+
+  const seen = new Set<string>();
+  for (const c of trimmed) {
+    const key = c.username.toLowerCase();
+    if (seen.has(key)) return { ok: false, error: "duplicate-username" };
+    seen.add(key);
+  }
+
+  const existing = await prisma.formAccessCode.findMany({ where: { formId } });
+  const existingByUsername = new Map(existing.map((c) => [c.username, c]));
+
+  for (const c of trimmed) {
+    if (!existingByUsername.has(c.username) && !c.password) {
+      return { ok: false, error: "missing-password" };
+    }
+  }
+
+  await prisma.$transaction([
+    prisma.formAccessCode.deleteMany({
+      where: { formId, username: { notIn: trimmed.map((c) => c.username) } },
+    }),
+    ...trimmed.map((c) =>
+      c.password
+        ? prisma.formAccessCode.upsert({
+            where: { formId_username: { formId, username: c.username } },
+            create: { formId, username: c.username, passwordHash: hashPassword(c.password) },
+            update: { passwordHash: hashPassword(c.password) },
+          })
+        : prisma.formAccessCode.update({
+            where: { formId_username: { formId, username: c.username } },
+            data: {},
+          }),
+    ),
+    prisma.form.update({ where: { id: formId }, data: { requireAccessCode } }),
+  ]);
+
+  return { ok: true };
 }
 
 export async function deleteForm(formId: string): Promise<{ ok: boolean }> {
@@ -256,13 +412,15 @@ export async function publishForm(input: {
   title: string;
   fields: FormField[];
   theme: FormTheme;
+  storage: StorageChoice;
+  closing: FormClosing;
 }): Promise<PublishResult> {
   const session = await auth();
   if (!session?.user?.id) {
     return { ok: false, error: "not-signed-in" };
   }
 
-  const title = input.title.trim();
+  const title = sanitizeTitle(input.title);
   if (!title) {
     return { ok: false, error: "empty-title" };
   }
@@ -270,7 +428,10 @@ export async function publishForm(input: {
   const admin = await prisma.admin.findUnique({
     where: { id: session.user.id },
   });
-  if (!admin?.googleRefreshToken) {
+  if (!admin) {
+    return { ok: false, error: "not-signed-in" };
+  }
+  if (input.storage === "google" && !admin.googleRefreshToken) {
     return { ok: false, error: "no-google-access" };
   }
 
@@ -298,34 +459,71 @@ export async function publishForm(input: {
   const finalTitle = await generateUniqueTitle(admin.id, title, input.formId);
   const slug = await uniqueSlugFor(finalTitle, input.formId);
 
-  let googleResult;
-  try {
-    googleResult = await publishFormToGoogle({
-      refreshToken: admin.googleRefreshToken,
-      title: finalTitle,
-      fields: input.fields,
-    });
-  } catch (err) {
-    console.error("Publish to Google failed:", err);
-    return { ok: false, error: "google-error" };
-  }
-
-  const data = {
+  const data: Record<string, unknown> = {
     adminId: admin.id,
     slug,
     title: finalTitle,
     status: "published",
     schema: JSON.stringify(input.fields),
     theme: JSON.stringify(input.theme),
-    googleSheetId: googleResult.spreadsheetId,
-    googleDriveFolderId: googleResult.formFolderId,
     publishedAt: new Date(),
+    ...closingToDbFields(input.closing),
   };
 
+  if (input.storage === "google") {
+    let googleResult;
+    try {
+      googleResult = await publishFormToGoogle({
+        refreshToken: admin.googleRefreshToken!,
+        title: finalTitle,
+        fields: input.fields,
+      });
+    } catch (err) {
+      console.error("Publish to Google failed:", err);
+      return { ok: false, error: "google-error" };
+    }
+    data.storageProvider = "google";
+    data.googleSheetId = googleResult.spreadsheetId;
+    data.googleDriveFolderId = googleResult.formFolderId;
+
+    try {
+      const fieldsWithUploadedImages = await uploadSchemaImages({
+        refreshToken: admin.googleRefreshToken!,
+        formFolderId: googleResult.formFolderId,
+        fields: input.fields,
+      });
+      data.schema = JSON.stringify(fieldsWithUploadedImages);
+    } catch (err) {
+      // Keep the base64-embedded schema rather than failing the whole
+      // publish over an image upload hiccup.
+      console.error("Schema image upload failed:", err);
+    }
+  } else {
+    data.storageProvider = "local";
+  }
+
+  let formId: string;
   if (input.formId) {
     await prisma.form.update({ where: { id: input.formId }, data });
+    formId = input.formId;
   } else {
-    await prisma.form.create({ data });
+    const created = await prisma.form.create({ data: data as never });
+    formId = created.id;
+  }
+
+  // Only knowable once the row exists — a brand-new form has no id (and so
+  // nowhere to save files under) until the create above runs, so this is a
+  // follow-up pass rather than something foldable into `data` up front.
+  if (input.storage === "local") {
+    try {
+      const fieldsWithLocalImages = await saveSchemaImagesLocally(formId, input.fields);
+      await prisma.form.update({
+        where: { id: formId },
+        data: { schema: JSON.stringify(fieldsWithLocalImages) },
+      });
+    } catch (err) {
+      console.error("Schema image local-save failed:", err);
+    }
   }
 
   return { ok: true, slug };

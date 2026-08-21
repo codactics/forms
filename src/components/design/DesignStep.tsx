@@ -18,24 +18,35 @@ import {
 import { checkTitleAvailability } from "@/lib/form-actions";
 import { useElementWidth } from "@/hooks/useElementWidth";
 import { InlineMarkdown, MarkdownContent } from "@/components/shared/MarkdownContent";
+import { TIMEZONE_OPTIONS } from "@/lib/timezones";
+import type { FormClosing } from "@/types/closing";
 import { DraggableBox } from "./DraggableBox";
 import { HeaderPreview } from "./HeaderPreview";
 import { PageBackground } from "./PageBackground";
+import { AccessCodeSettings } from "./AccessCodeSettings";
 
 export function DesignStep({
   formTitle,
   onTitleChange,
   theme,
   onThemeChange,
+  closing,
+  onClosingChange,
   onContinue,
   formId,
+  requireAccessCode,
+  accessUsernames,
 }: {
   formTitle: string;
   onTitleChange: (title: string) => void;
   theme: FormTheme;
   onThemeChange: (theme: FormTheme) => void;
+  closing: FormClosing;
+  onClosingChange: (closing: FormClosing) => void;
   onContinue: () => void;
   formId?: string | null;
+  requireAccessCode?: boolean;
+  accessUsernames?: string[];
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -489,6 +500,88 @@ export function DesignStep({
             className="w-full resize-y rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
           />
         </div>
+
+        <div className="border-t border-royal-100 pt-4">
+          <label className="mb-2 block text-xs font-medium text-royal-700">
+            Response deadline
+          </label>
+          <div className="flex flex-col gap-2">
+            <label className="flex items-center gap-2 text-sm text-royal-700">
+              <input
+                type="radio"
+                name="closing-mode"
+                checked={closing.mode === "open"}
+                onChange={() => onClosingChange({ ...closing, mode: "open" })}
+              />
+              Keep accepting responses
+            </label>
+            <label className="flex items-center gap-2 text-sm text-royal-700">
+              <input
+                type="radio"
+                name="closing-mode"
+                checked={closing.mode === "deadline"}
+                onChange={() => onClosingChange({ ...closing, mode: "deadline" })}
+              />
+              Close automatically at a deadline
+            </label>
+            {closing.mode === "deadline" && (
+              <div className="ml-6 flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={closing.dateStr}
+                    onChange={(e) =>
+                      onClosingChange({ ...closing, dateStr: e.target.value })
+                    }
+                    className="min-w-0 flex-1 rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+                  />
+                  <input
+                    type="time"
+                    value={closing.timeStr}
+                    onChange={(e) =>
+                      onClosingChange({ ...closing, timeStr: e.target.value })
+                    }
+                    className="w-28 rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+                  />
+                </div>
+                <select
+                  value={closing.timezoneId}
+                  onChange={(e) =>
+                    onClosingChange({ ...closing, timezoneId: e.target.value })
+                  }
+                  className="w-full rounded-md border border-royal-200 px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+                >
+                  {TIMEZONE_OPTIONS.map((tz) => (
+                    <option key={tz.id} value={tz.id}>
+                      {tz.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            <label className="flex items-center gap-2 text-sm text-royal-700">
+              <input
+                type="radio"
+                name="closing-mode"
+                checked={closing.mode === "manual"}
+                onChange={() => onClosingChange({ ...closing, mode: "manual" })}
+              />
+              Stop accepting responses now
+            </label>
+          </div>
+          {closing.mode !== "open" && (
+            <p className="mt-2 text-xs text-royal-400">
+              Visitors will see: &ldquo;Form is not taking any more data right
+              now. Contact the organizer.&rdquo;
+            </p>
+          )}
+        </div>
+
+        <AccessCodeSettings
+          formId={formId}
+          initialRequireAccessCode={requireAccessCode ?? false}
+          initialUsernames={accessUsernames ?? []}
+        />
 
         <button
           type="button"

@@ -52,7 +52,9 @@ export const AnyNull = runtime.AnyNull
 
 export const ModelName = {
   Admin: 'Admin',
-  Form: 'Form'
+  Form: 'Form',
+  FormAccessCode: 'FormAccessCode',
+  Submission: 'Submission'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -89,14 +91,40 @@ export const FormScalarFieldEnum = {
   status: 'status',
   schema: 'schema',
   theme: 'theme',
+  storageProvider: 'storageProvider',
   googleSheetId: 'googleSheetId',
   googleDriveFolderId: 'googleDriveFolderId',
+  closeMode: 'closeMode',
+  closesAt: 'closesAt',
+  closeTimezoneLabel: 'closeTimezoneLabel',
+  requireAccessCode: 'requireAccessCode',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt',
   publishedAt: 'publishedAt'
 } as const
 
 export type FormScalarFieldEnum = (typeof FormScalarFieldEnum)[keyof typeof FormScalarFieldEnum]
+
+
+export const FormAccessCodeScalarFieldEnum = {
+  id: 'id',
+  formId: 'formId',
+  username: 'username',
+  passwordHash: 'passwordHash',
+  createdAt: 'createdAt'
+} as const
+
+export type FormAccessCodeScalarFieldEnum = (typeof FormAccessCodeScalarFieldEnum)[keyof typeof FormAccessCodeScalarFieldEnum]
+
+
+export const SubmissionScalarFieldEnum = {
+  id: 'id',
+  formId: 'formId',
+  submittedAt: 'submittedAt',
+  dataJson: 'dataJson'
+} as const
+
+export type SubmissionScalarFieldEnum = (typeof SubmissionScalarFieldEnum)[keyof typeof SubmissionScalarFieldEnum]
 
 
 export const SortOrder = {
