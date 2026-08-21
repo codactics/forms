@@ -1,4 +1,6 @@
--- Nextcloud storage option removed; Google Drive is the only supported storage provider again.
-ALTER TABLE "Form" DROP COLUMN "storageProvider";
-ALTER TABLE "Form" DROP COLUMN "nextcloudUrl";
-ALTER TABLE "Form" DROP COLUMN "nextcloudPasswordEnc";
+-- No-op: the preceding "add_local_storage" migration's table rebuild
+-- already omitted nextcloudUrl/nextcloudPasswordEnc from the new Form
+-- table, so those columns don't exist by the time this migration runs.
+-- (storageProvider must NOT be dropped here — it's still a live column,
+-- see schema.prisma. An earlier version of this migration incorrectly
+-- dropped it against production; see scripts/restore-storage-provider.js.)
