@@ -1860,6 +1860,7 @@ function ButtonFieldRenderer({
   field: Extract<FormField, { type: "button" }>;
 }) {
   const [open, setOpen] = useState(false);
+  const [zoomed, setZoomed] = useState<{ url: string; alt: string } | null>(null);
   // "Committed" is what actually gets submitted with the form — it only
   // ever changes on an explicit Save (or Reset) click, never just from
   // typing in the popup. "Draft" is the popup's own working copy, seeded
@@ -2021,7 +2022,10 @@ function ButtonFieldRenderer({
             <img
               src={field.buttonImageDataUrl}
               alt={field.buttonText || ""}
-              className="mb-3 max-h-48 w-full rounded-lg border border-royal-100 object-contain"
+              onClick={() =>
+                setZoomed({ url: field.buttonImageDataUrl!, alt: field.buttonText || "" })
+              }
+              className="mb-3 max-h-48 w-full cursor-zoom-in rounded-lg border border-royal-100 object-contain"
             />
           )}
           <div className="flex flex-col gap-3">
@@ -2068,6 +2072,8 @@ function ButtonFieldRenderer({
           </div>
         </div>
       </div>
+
+      <ImageZoomModal image={zoomed} onClose={() => setZoomed(null)} />
     </div>
   );
 }
