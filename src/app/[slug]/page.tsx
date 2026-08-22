@@ -7,18 +7,14 @@ import { HeaderPreview } from "@/components/design/HeaderPreview";
 import { PageBackground } from "@/components/design/PageBackground";
 import { submitFormAction } from "./actions";
 import { AccessGate } from "./AccessGate";
-import { CLOSED_MESSAGE } from "@/types/closing";
+import { CLOSED_MESSAGE, isFormClosed } from "@/types/closing";
 import type { FormField } from "@/types/form-builder";
 import type { FormTheme } from "@/types/theme";
 
 async function getForm(slug: string) {
   const form = await prisma.form.findUnique({ where: { slug } });
   if (!form || form.status === "draft") return null;
-  const isClosed =
-    form.closeMode === "manual" ||
-    (form.closeMode === "deadline" &&
-      !!form.closesAt &&
-      new Date() > form.closesAt);
+  const isClosed = isFormClosed(form);
   return {
     id: form.id,
     title: form.title,

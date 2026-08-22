@@ -18,6 +18,7 @@ import {
   Star,
   Calculator,
   MousePointerClick,
+  ImagePlus,
   type LucideIcon,
 } from "lucide-react";
 import type {
@@ -37,6 +38,11 @@ export interface FieldTypeDef {
   description: string;
   icon: LucideIcon;
   create: () => FormField;
+  // false for types that never carry a plain per-submission answer (a
+  // section marker, a static message, or a type with its own dedicated
+  // export shape like Repeating list/Button) — omit (defaults to true) for
+  // anything that gets a normal answer column/cell. Read via isDataField().
+  producesDataColumn?: boolean;
 }
 
 export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
@@ -207,6 +213,7 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
     label: "Message",
     description: "Write a static note or instructions for the form",
     icon: StickyNote,
+    producesDataColumn: false,
     create: () => ({
       id: createId(),
       type: "static-text",
@@ -220,6 +227,7 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
     label: "Section break",
     description: "Splits the form into multiple steps/pages",
     icon: SeparatorHorizontal,
+    producesDataColumn: false,
     create: () => ({
       id: createId(),
       type: "section-break",
@@ -263,6 +271,7 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
     label: "Repeating list",
     description: "A repeating group of entries you define, e.g. players, guests, or items",
     icon: Rows3,
+    producesDataColumn: false,
     create: () => ({
       id: createId(),
       type: "player-list",
@@ -278,6 +287,7 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
     label: "Button",
     description: "A button that opens a small popup form when clicked, e.g. optional extra details",
     icon: MousePointerClick,
+    producesDataColumn: false,
     create: () => ({
       id: createId(),
       type: "button",
@@ -286,6 +296,20 @@ export const FIELD_TYPE_DEFS: FieldTypeDef[] = [
       buttonStyle: "text",
       buttonText: "Click to answer",
       fields: [],
+    }),
+  },
+  {
+    type: "image-display",
+    label: "Image",
+    description: "Show an image to respondents, e.g. a banner, flyer, or sponsor logo",
+    icon: ImagePlus,
+    producesDataColumn: false,
+    create: () => ({
+      id: createId(),
+      type: "image-display",
+      label: "",
+      required: false,
+      caption: "",
     }),
   },
 ];
@@ -298,6 +322,14 @@ export function getFieldTypeDef(type: FieldType): FieldTypeDef {
 
 export function createField(type: FieldType): FormField {
   return getFieldTypeDef(type).create();
+}
+
+// Whether a field of this type gets a normal per-submission answer
+// column/cell in exports (Google Sheets, local CSV/JSON) — false for
+// section markers, static messages, and types with their own dedicated
+// export shape (Repeating list's own tab, Button's flattened sub-columns).
+export function isDataField(type: FieldType): boolean {
+  return getFieldTypeDef(type).producesDataColumn !== false;
 }
 
 export interface PlayerListColumnTypeDef {

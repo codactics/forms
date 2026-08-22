@@ -2,17 +2,8 @@ import { NextResponse } from "next/server";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
-
-const SCHEMA_ASSETS_ROOT = path.join(process.cwd(), "data", "schema-assets");
-
-const CONTENT_TYPES: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-};
+import { SCHEMA_ASSETS_ROOT } from "@/lib/local-storage";
+import { resolveSafePath, IMAGE_EXT_TO_CONTENT_TYPE } from "@/lib/media-utils";
 
 // Unlike /api/uploads (private submission files, requires the admin's own
 // sign-in), this serves form-DEFINITION images — dropdown option
@@ -33,10 +24,9 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  // Resolve and confirm the final path never escapes the schema-assets
-  // root — formId/fileName are both attacker-controlled URL segments.
-  const resolved = path.resolve(SCHEMA_ASSETS_ROOT, formId, fileName);
-  if (!resolved.startsWith(path.resolve(SCHEMA_ASSETS_ROOT) + path.sep)) {
+  // formId/fileName are both attacker-controlled URL segments.
+  const resolved = resolveSafePath(SCHEMA_ASSETS_ROOT, formId, fileName);
+  if (!resolved) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
@@ -50,7 +40,7 @@ export async function GET(
   const ext = path.extname(fileName).toLowerCase();
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
-      "Content-Type": CONTENT_TYPES[ext] ?? "application/octet-stream",
+      "Content-Type": IMAGE_EXT_TO_CONTENT_TYPE[ext] ?? "application/octet-stream",
       "Cache-Control": "public, max-age=31536000, immutable",
     },
   });

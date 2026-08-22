@@ -2,7 +2,6 @@ import { Readable } from "node:stream";
 import { google } from "googleapis";
 import type { drive_v3, sheets_v4 } from "googleapis";
 import {
-  normalizeDropdownOption,
   type ButtonField,
   type FormField,
   type PlayerListColumn,
@@ -10,6 +9,17 @@ import {
 } from "@/types/form-builder";
 import { formatComputedResult, resolveComputedValues } from "@/lib/computed";
 import { formatBerlinDate, formatBerlinTime } from "@/lib/timezones";
+import { isDataField } from "@/lib/field-types";
+import {
+  sanitizeName,
+  sanitizeFileName,
+  dataUrlToBuffer,
+  fieldsHaveEmbeddedImage,
+  themeHasEmbeddedImage,
+  replaceEmbeddedFieldImages,
+  replaceEmbeddedThemeImages,
+} from "@/lib/media-utils";
+import type { FormTheme } from "@/types/theme";
 
 export function getGoogleClients(refreshToken: string) {
   const oauth2Client = new google.auth.OAuth2(
@@ -21,11 +31,6 @@ export function getGoogleClients(refreshToken: string) {
   const drive = google.drive({ version: "v3", auth: oauth2Client });
   const sheets = google.sheets({ version: "v4", auth: oauth2Client });
   return { drive, sheets };
-}
-
-export function sanitizeName(input: string): string {
-  const cleaned = input.trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return cleaned || "form";
 }
 
 function timestampSuffix(date = new Date()): string {
@@ -69,13 +74,6 @@ async function findOrCreateFolder(
   return created.data.id;
 }
 
-const NON_DATA_TYPES = new Set([
-  "static-text",
-  "section-break",
-  "player-list",
-  "button",
-]);
-
 function isPlayerListField(field: FormField): field is PlayerListField {
   return field.type === "player-list";
 }
@@ -105,7 +103,7 @@ export async function publishFormToGoogle({
   const codacticsFolderId = await findOrCreateFolder(drive, "codactics");
   const formsFolderId = await findOrCreateFolder(drive, "form", codacticsFolderId);
 
-  const sanitizedTitle = sanitizeName(title);
+  const sanitizedTitle = sanitizeName(title, "form");
   const folderName = `${sanitizedTitle}_${timestampSuffix()}`;
 
   const formFolder = await drive.files.create({
@@ -130,7 +128,7 @@ export async function publishFormToGoogle({
 
   const playerListFields = fields.filter(isPlayerListField);
   const buttonFields = fields.filter(isButtonField);
-  const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
+  const dataFields = fields.filter((f) => isDataField(f.type));
 
   const sheetTabs: sheets_v4.Schema$Sheet[] = [
     { properties: { title: "Submissions" } },
@@ -241,7 +239,7 @@ export async function syncSheetColumns({
 
   const playerListFields = fields.filter(isPlayerListField);
   const buttonFields = fields.filter(isButtonField);
-  const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
+  const dataFields = fields.filter((f) => isDataField(f.type));
 
   await syncTabHeader(sheets, spreadsheetId, "Submissions", [
     "Submission ID",
@@ -299,14 +297,6 @@ async function uploadFileToFolder(
   );
 }
 
-function dataUrlToBuffer(
-  dataUrl: string,
-): { buffer: Buffer; mimeType: string } | null {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) return null;
-  return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
-}
-
 // webViewLink opens Drive's HTML viewer page, not the raw image — no good
 // as an <img src>. This is the direct-content hotlink pattern that actually
 // renders, so the file also has to be shared "anyone with the link" for it
@@ -337,82 +327,75 @@ async function uploadPublicImage(
   return driveImageUrl(fileId);
 }
 
-// Dropdown option thumbnails and Button images are saved as base64 data
-// URLs in the builder (so editing works before the admin is ever signed in
-// with Drive access) — this moves any of those over to the form's own
-// Drive folder at publish/update time, replacing the data URL in the saved
-// schema with a hotlink. Fields that already reference an uploaded image
+// Dropdown option thumbnails, Button images, Message/Image field pictures,
+// and the theme's own logo/background/canvas images are all saved as
+// base64 data URLs in the builder (so editing works before the admin is
+// ever signed in with Drive access) — this moves any of those over to the
+// form's own Drive folder at publish/update time, replacing the data URL
+// with a hotlink. Fields/images that already reference an uploaded image
 // (from a previous publish) are left alone, so nothing re-uploads on every
-// edit. No-ops entirely (never touches Drive) if there's nothing embedded.
-export async function uploadSchemaImages({
+// edit. Schema and theme uploads run concurrently since they're
+// independent; the folder is resolved once up front specifically so that
+// concurrency can't race two callers into creating two "images" folders.
+// Each half degrades independently — a failure uploading fields doesn't
+// lose a theme upload that already succeeded, or vice versa.
+export async function uploadFormImagesToDrive({
   refreshToken,
   formFolderId,
   fields,
+  theme,
 }: {
   refreshToken: string;
   formFolderId: string;
   fields: FormField[];
-}): Promise<FormField[]> {
-  const hasEmbeddedImage = fields.some((f) => {
-    if (f.type === "dropdown") {
-      return f.options.some((o) => {
-        const opt = normalizeDropdownOption(o);
-        return opt.imageDataUrl?.startsWith("data:");
-      });
-    }
-    if (f.type === "button") return f.buttonImageDataUrl?.startsWith("data:");
-    return false;
-  });
-  if (!hasEmbeddedImage) return fields;
+  theme: FormTheme;
+}): Promise<{ fields: FormField[]; theme: FormTheme }> {
+  const needsFields = fieldsHaveEmbeddedImage(fields);
+  const needsTheme = themeHasEmbeddedImage(theme);
+  if (!needsFields && !needsTheme) return { fields, theme };
 
   const { drive } = getGoogleClients(refreshToken);
   const imagesFolderId = await findOrCreateFolder(drive, "images", formFolderId);
+  const uploadOne = (dataUrl: string, hint: string) =>
+    uploadPublicImage(drive, imagesFolderId, `${sanitizeName(hint)}_${timestampSuffix()}`, dataUrl);
 
-  const updated: FormField[] = [];
-  for (const field of fields) {
-    if (field.type === "dropdown") {
-      const options = [];
-      for (const [i, raw] of field.options.entries()) {
-        const opt = normalizeDropdownOption(raw);
-        if (opt.imageDataUrl?.startsWith("data:")) {
-          const url = await uploadPublicImage(
-            drive,
-            imagesFolderId,
-            `${sanitizeName(field.label || "option")}_${i + 1}_${timestampSuffix()}`,
-            opt.imageDataUrl,
-          );
-          options.push({ ...opt, imageDataUrl: url });
-        } else {
-          options.push(opt);
-        }
-      }
-      updated.push({ ...field, options });
-    } else if (field.type === "button" && field.buttonImageDataUrl?.startsWith("data:")) {
-      const url = await uploadPublicImage(
-        drive,
-        imagesFolderId,
-        `${sanitizeName(field.label || "button")}_${timestampSuffix()}`,
-        field.buttonImageDataUrl,
-      );
-      updated.push({ ...field, buttonImageDataUrl: url } as ButtonField);
-    } else {
-      updated.push(field);
-    }
+  const [fieldsResult, themeResult] = await Promise.allSettled([
+    needsFields ? replaceEmbeddedFieldImages(fields, uploadOne) : Promise.resolve(fields),
+    needsTheme ? replaceEmbeddedThemeImages(theme, uploadOne) : Promise.resolve(theme),
+  ]);
+
+  if (fieldsResult.status === "rejected") {
+    console.error("Schema image upload failed:", fieldsResult.reason);
   }
-  return updated;
+  if (themeResult.status === "rejected") {
+    console.error("Theme image upload failed:", themeResult.reason);
+  }
+
+  return {
+    fields: fieldsResult.status === "fulfilled" ? fieldsResult.value : fields,
+    theme: themeResult.status === "fulfilled" ? themeResult.value : theme,
+  };
 }
 
-async function appendRowMatchingHeader(
+async function fetchTabHeader(
   sheets: sheets_v4.Sheets,
   spreadsheetId: string,
   tabTitle: string,
-  valuesByHeader: Record<string, string>,
-) {
+): Promise<string[]> {
   const existing = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${tabTitle}!1:1`,
   });
-  const header = (existing.data.values?.[0] ?? []) as string[];
+  return (existing.data.values?.[0] ?? []) as string[];
+}
+
+async function appendRow(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  tabTitle: string,
+  header: string[],
+  valuesByHeader: Record<string, string>,
+) {
   const row = header.map((h) => valuesByHeader[h] ?? "");
   await sheets.spreadsheets.values.append({
     spreadsheetId,
@@ -421,6 +404,20 @@ async function appendRowMatchingHeader(
     insertDataOption: "INSERT_ROWS",
     requestBody: { values: [row] },
   });
+}
+
+// Convenience for the common one-row-per-tab case (the "Submissions" tab)
+// — a Repeating list can append several rows to the SAME tab in one
+// submission, where fetching the header once up front (see the player-list
+// loop below) rather than per row is worth the extra step.
+async function appendRowMatchingHeader(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  tabTitle: string,
+  valuesByHeader: Record<string, string>,
+) {
+  const header = await fetchTabHeader(sheets, spreadsheetId, tabTitle);
+  await appendRow(sheets, spreadsheetId, tabTitle, header, valuesByHeader);
 }
 
 async function extractTopLevelValue(
@@ -439,7 +436,7 @@ async function extractTopLevelValue(
       return uploadFileToFolder(
         drive,
         filesFolderId,
-        `${fileNamePrefix}_${sanitizeName(file.name)}`,
+        `${fileNamePrefix}_${sanitizeFileName(file.name)}`,
         buffer,
         file.type || "application/octet-stream",
       );
@@ -495,7 +492,7 @@ async function extractPlayerColumnValue(
     return uploadFileToFolder(
       drive,
       filesFolderId,
-      `${fileNamePrefix}_${sanitizeName(file.name)}`,
+      `${fileNamePrefix}_${sanitizeFileName(file.name)}`,
       buffer,
       file.type || "application/octet-stream",
     );
@@ -527,7 +524,7 @@ export async function recordSubmission({
 
   const playerListFields = fields.filter(isPlayerListField);
   const buttonFields = fields.filter(isButtonField);
-  const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
+  const dataFields = fields.filter((f) => isDataField(f.type));
 
   // Computed fields are recalculated from the submitted Number/Rating
   // values here — never trusted from the client's hidden input — so a
@@ -587,6 +584,7 @@ export async function recordSubmission({
       0,
       90,
     );
+    const rows: Record<string, string>[] = [];
     for (let i = 0; i < playerListField.playerCount; i++) {
       const row: Record<string, string> = {};
       let hasValue = false;
@@ -605,11 +603,14 @@ export async function recordSubmission({
       }
       // Skip fully-blank player rows (e.g. a squad of 7 in an 11-slot form).
       if (!hasValue) continue;
-      await appendRowMatchingHeader(sheets, spreadsheetId, tabTitle, {
-        "Submission ID": submissionId,
-        "Entry #": String(i + 1),
-        ...row,
-      });
+      rows.push({ "Submission ID": submissionId, "Entry #": String(i + 1), ...row });
+    }
+    // The header can't change between rows of the same submission — fetch
+    // it once per tab rather than once per row.
+    if (rows.length === 0) continue;
+    const header = await fetchTabHeader(sheets, spreadsheetId, tabTitle);
+    for (const row of rows) {
+      await appendRow(sheets, spreadsheetId, tabTitle, header, row);
     }
   }
 

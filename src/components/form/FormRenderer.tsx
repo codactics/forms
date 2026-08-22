@@ -78,6 +78,25 @@ interface FormSection {
   sectionBreakField?: FormField;
 }
 
+// Hiding a section hides everything in it, not just its own page-break
+// marker — every field up to (but not including) the next section-break
+// is skipped right along with it. A plain hidden field (not a section
+// break) is still just itself, regardless of which section it's in.
+function excludeHiddenFields(fields: FormField[]): FormField[] {
+  const visible: FormField[] = [];
+  let inHiddenSection = false;
+  for (const field of fields) {
+    if (field.type === "section-break") {
+      inHiddenSection = !!field.hidden;
+      if (!field.hidden) visible.push(field);
+      continue;
+    }
+    if (inHiddenSection || field.hidden) continue;
+    visible.push(field);
+  }
+  return visible;
+}
+
 function splitIntoSections(fields: FormField[]): FormSection[] {
   const sections: FormSection[] = [{ title: null, description: "", fields: [] }];
   for (const field of fields) {
@@ -122,23 +141,27 @@ interface ReviewSection {
   items: ReviewItem[];
 }
 
+// Shared by Repeating-list rows and Button sub-answers — same "read this
+// column's value out of FormData, using the filename for a photo" logic
+// regardless of which composite field the column belongs to.
+function columnDisplayValue(column: PlayerListColumn, formData: FormData, key: string): string {
+  if (column.type === "photo") {
+    const file = formData.get(key);
+    return file instanceof File && file.size > 0 ? file.name : "";
+  }
+  return String(formData.get(key) ?? "");
+}
+
 function reviewPlayerListRows(
   field: Extract<FormField, { type: "player-list" }>,
   formData: FormData,
 ) {
   const rows: { label: string; value: string }[][] = [];
   for (let i = 0; i < field.playerCount; i++) {
-    const row = field.columns.map((column) => {
-      const key = `player-${i}-${column.id}`;
-      if (column.type === "photo") {
-        const file = formData.get(key);
-        return {
-          label: column.label,
-          value: file instanceof File && file.size > 0 ? file.name : "",
-        };
-      }
-      return { label: column.label, value: String(formData.get(key) ?? "") };
-    });
+    const row = field.columns.map((column) => ({
+      label: column.label,
+      value: columnDisplayValue(column, formData, `player-${i}-${column.id}`),
+    }));
     if (row.some((c) => c.value)) rows.push(row);
   }
   return rows;
@@ -149,14 +172,10 @@ function reviewButtonAnswer(
   formData: FormData,
 ): ReviewValue {
   const answers = field.fields
-    .map((column) => {
-      const key = `${field.id}__${column.id}`;
-      if (column.type === "photo") {
-        const file = formData.get(key);
-        return { label: column.label, value: file instanceof File && file.size > 0 ? file.name : "" };
-      }
-      return { label: column.label, value: String(formData.get(key) ?? "") };
-    })
+    .map((column) => ({
+      label: column.label,
+      value: columnDisplayValue(column, formData, `${field.id}__${column.id}`),
+    }))
     .filter((a) => a.value);
   return {
     kind: "button",
@@ -269,7 +288,11 @@ function buildReviewSections(
     .map((section) => {
       const items: ReviewItem[] = [];
       for (const field of section.fields) {
-        if (field.type === "static-text" || field.type === "section-break") {
+        if (
+          field.type === "static-text" ||
+          field.type === "section-break" ||
+          field.type === "image-display"
+        ) {
           continue;
         }
         if (field.type === "computed" && !field.showOnForm) continue;
@@ -302,7 +325,7 @@ function buildReviewSections(
 
 export function FormRenderer({
   title,
-  fields,
+  fields: allFields,
   theme,
   submitAction,
 }: {
@@ -314,6 +337,11 @@ export function FormRenderer({
     formData: FormData,
   ) => Promise<SubmitState>;
 }) {
+  // Hidden fields (and everything inside a hidden section) stay in the
+  // form's definition — so the admin can un-hide without losing settings —
+  // but never reach the respondent. Filtered once here so every downstream
+  // consumer (sections, the Review screen, the PDF export) is consistent.
+  const fields = excludeHiddenFields(allFields);
   const sections = splitIntoSections(fields);
   const [step, setStep] = useState(0);
   const currentStep = Math.min(step, sections.length - 1);
@@ -420,6 +448,24 @@ export function FormRenderer({
         }
       }
 
+      // Resolved once, up front, in parallel — rather than one network
+      // round trip per image awaited inline inside the draw loop below.
+      const imageUrls = new Set<string>();
+      for (const section of reviewSections) {
+        for (const item of section.items) {
+          if (item.value.kind === "button" && item.value.imageDataUrl) {
+            imageUrls.add(item.value.imageDataUrl);
+          }
+        }
+      }
+      const embeddableImages = new Map(
+        await Promise.all(
+          Array.from(imageUrls).map(
+            async (url) => [url, await toEmbeddablePdfImage(url)] as const,
+          ),
+        ),
+      );
+
       for (const section of reviewSections) {
         if (section.title) {
           ensureSpace(30);
@@ -461,7 +507,7 @@ export function FormRenderer({
             }
           } else {
             if (item.value.imageDataUrl) {
-              const embeddable = await toEmbeddablePdfImage(item.value.imageDataUrl);
+              const embeddable = embeddableImages.get(item.value.imageDataUrl) ?? null;
               try {
                 if (!embeddable) throw new Error("Image could not be fetched");
                 const props = pdf.getImageProperties(embeddable);
@@ -849,6 +895,47 @@ function PopupModal({
   );
 }
 
+// Shared full-screen lightbox for any admin-uploaded image shown to
+// respondents — dropdown option thumbnails, Message/Image field pictures.
+// Backdrop click or Close dismisses it.
+function ImageZoomModal({
+  image,
+  onClose,
+}: {
+  image: { url: string; alt: string } | null;
+  onClose: () => void;
+}) {
+  if (!image) return null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-full max-w-full flex-col items-center gap-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={image.url}
+          alt={image.alt}
+          className="max-h-[75vh] max-w-full rounded-lg object-contain shadow-2xl"
+        />
+        {image.alt && (
+          <p className="text-center text-sm font-medium text-white">{image.alt}</p>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-white px-5 py-1.5 text-xs font-medium text-royal-700 hover:bg-royal-50"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FieldRenderer({ field }: { field: FormField }) {
   switch (field.type) {
     case "short-text":
@@ -1028,11 +1115,9 @@ function FieldRenderer({ field }: { field: FormField }) {
     case "button":
       return <ButtonFieldRenderer field={field} />;
     case "static-text":
-      return field.content ? (
-        <div className="rounded-xl border border-royal-100 bg-royal-50/60 p-5">
-          <MarkdownContent content={field.content} color={field.color} />
-        </div>
-      ) : null;
+      return <StaticTextRenderer field={field} />;
+    case "image-display":
+      return <ImageDisplayRenderer field={field} />;
     case "section-break":
       return null;
   }
@@ -1505,34 +1590,10 @@ function DropdownFieldInput({ field }: { field: DropdownField }) {
         />
       )}
 
-      {zoomedImage && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6"
-          onClick={() => setZoomedImage(null)}
-        >
-          <div
-            className="flex max-h-full max-w-full flex-col items-center gap-3"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={zoomedImage.url}
-              alt={zoomedImage.label}
-              className="max-h-[75vh] max-w-full rounded-lg object-contain shadow-2xl"
-            />
-            <p className="text-center text-sm font-medium text-white">
-              {zoomedImage.label}
-            </p>
-            <button
-              type="button"
-              onClick={() => setZoomedImage(null)}
-              className="rounded-full bg-white px-5 py-1.5 text-xs font-medium text-royal-700 hover:bg-royal-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-      )}
+      <ImageZoomModal
+        image={zoomedImage ? { url: zoomedImage.url, alt: zoomedImage.label } : null}
+        onClose={() => setZoomedImage(null)}
+      />
     </div>
   );
 }
@@ -1739,6 +1800,58 @@ function PlayerColumnInput({
     case "photo":
       return <CompactPhotoUpload name={name} required={column.required} />;
   }
+}
+
+function StaticTextRenderer({
+  field,
+}: {
+  field: Extract<FormField, { type: "static-text" }>;
+}) {
+  const [zoomed, setZoomed] = useState<{ url: string; alt: string } | null>(null);
+  if (!field.content && !field.imageDataUrl) return null;
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-royal-100 bg-royal-50/60 p-5">
+      {field.imageDataUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={field.imageDataUrl}
+          alt=""
+          onClick={() => setZoomed({ url: field.imageDataUrl!, alt: "" })}
+          className="max-h-96 w-full cursor-zoom-in rounded-lg object-contain"
+        />
+      )}
+      {field.content && (
+        <MarkdownContent content={field.content} color={field.color} />
+      )}
+      <ImageZoomModal image={zoomed} onClose={() => setZoomed(null)} />
+    </div>
+  );
+}
+
+function ImageDisplayRenderer({
+  field,
+}: {
+  field: Extract<FormField, { type: "image-display" }>;
+}) {
+  const [zoomed, setZoomed] = useState<{ url: string; alt: string } | null>(null);
+  if (!field.imageDataUrl) return null;
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-xl border border-royal-100 bg-white p-5 shadow-sm">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={field.imageDataUrl}
+        alt={field.caption ?? ""}
+        onClick={() =>
+          setZoomed({ url: field.imageDataUrl!, alt: field.caption ?? "" })
+        }
+        className="max-h-96 w-full cursor-zoom-in rounded-lg object-contain"
+      />
+      {field.caption && (
+        <p className="text-center text-sm text-royal-500">{field.caption}</p>
+      )}
+      <ImageZoomModal image={zoomed} onClose={() => setZoomed(null)} />
+    </div>
+  );
 }
 
 function ButtonFieldRenderer({

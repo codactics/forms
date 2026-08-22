@@ -2,20 +2,23 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import {
-  normalizeDropdownOption,
   type ButtonField,
   type FormField,
   type PlayerListColumn,
   type PlayerListField,
 } from "@/types/form-builder";
 import { formatComputedResult, resolveComputedValues } from "@/lib/computed";
-
-const NON_DATA_TYPES = new Set([
-  "static-text",
-  "section-break",
-  "player-list",
-  "button",
-]);
+import { isDataField } from "@/lib/field-types";
+import {
+  sanitizeFileName,
+  dataUrlToBuffer,
+  fieldsHaveEmbeddedImage,
+  themeHasEmbeddedImage,
+  replaceEmbeddedFieldImages,
+  replaceEmbeddedThemeImages,
+  IMAGE_MIME_TO_EXT,
+} from "@/lib/media-utils";
+import type { FormTheme } from "@/types/theme";
 
 function isPlayerListField(field: FormField): field is PlayerListField {
   return field.type === "player-list";
@@ -25,94 +28,65 @@ function isButtonField(field: FormField): field is ButtonField {
   return field.type === "button";
 }
 
-function sanitizeName(input: string): string {
-  const cleaned = input.trim().replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  return cleaned || "file";
-}
-
-function dataUrlToBuffer(
-  dataUrl: string,
-): { buffer: Buffer; mimeType: string } | null {
-  const match = /^data:([^;]+);base64,(.+)$/.exec(dataUrl);
-  if (!match) return null;
-  return { mimeType: match[1], buffer: Buffer.from(match[2], "base64") };
-}
-
 // Everything under this directory is gitignored and lives on whatever
 // persistent disk the server itself has — never served statically, only
-// through the authenticated download route.
-const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
+// through the authenticated download route (src/app/api/uploads). Exported
+// so that route (and the schema-assets one below) share the same root
+// rather than each re-declaring their own copy of the path.
+export const UPLOADS_ROOT = path.join(process.cwd(), "data", "uploads");
 
 // Separate root for form-DEFINITION images (dropdown option thumbnails,
 // Button images) — kept apart from UPLOADS_ROOT (private submission
 // answers) since these are served back out publicly, unauthenticated, for
-// anyone viewing the live form.
-const SCHEMA_ASSETS_ROOT = path.join(process.cwd(), "data", "schema-assets");
+// anyone viewing the live form. Exported for the same reason as above.
+export const SCHEMA_ASSETS_ROOT = path.join(process.cwd(), "data", "schema-assets");
 
-const IMAGE_EXTENSIONS: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-};
-
-// Dropdown option thumbnails and Button images are saved as base64 data
-// URLs in the builder (so editing works before the form is ever published)
-// — this moves any of those to a local file at publish/update time,
-// replacing the data URL in the saved schema with a URL served by the
-// schema-assets route. Fields that already reference a saved file (from a
-// previous publish) are left alone. No-ops entirely if nothing's embedded.
-export async function saveSchemaImagesLocally(
+// Dropdown option thumbnails, Button images, Message/Image field pictures,
+// and the theme's own logo/background/canvas images are all saved as
+// base64 data URLs in the builder (so editing works before the form is
+// ever published) — this moves any of those to a local file at
+// publish/update time, replacing the data URL with a URL served by the
+// schema-assets route. Fields/images that already reference a saved file
+// (from a previous publish) are left alone. Schema and theme images save
+// concurrently since they're independent writes to the same directory
+// (created once up front, not per file); each half degrades independently
+// on failure rather than losing whichever side already succeeded.
+export async function saveFormImagesLocally(
   formId: string,
   fields: FormField[],
-): Promise<FormField[]> {
-  const hasEmbeddedImage = fields.some((f) => {
-    if (f.type === "dropdown") {
-      return f.options.some((o) => {
-        const opt = normalizeDropdownOption(o);
-        return opt.imageDataUrl?.startsWith("data:");
-      });
-    }
-    if (f.type === "button") return f.buttonImageDataUrl?.startsWith("data:");
-    return false;
-  });
-  if (!hasEmbeddedImage) return fields;
+  theme: FormTheme,
+): Promise<{ fields: FormField[]; theme: FormTheme }> {
+  const needsFields = fieldsHaveEmbeddedImage(fields);
+  const needsTheme = themeHasEmbeddedImage(theme);
+  if (!needsFields && !needsTheme) return { fields, theme };
 
-  async function saveOne(dataUrl: string): Promise<string> {
+  const dir = path.join(SCHEMA_ASSETS_ROOT, formId);
+  await mkdir(dir, { recursive: true });
+  const uploadOne = async (dataUrl: string): Promise<string> => {
     const parsed = dataUrlToBuffer(dataUrl);
     if (!parsed) return dataUrl;
-    const ext = IMAGE_EXTENSIONS[parsed.mimeType] ?? "bin";
+    const ext = IMAGE_MIME_TO_EXT[parsed.mimeType] ?? "bin";
     const fileName = `${crypto.randomUUID()}.${ext}`;
-    const dir = path.join(SCHEMA_ASSETS_ROOT, formId);
-    await mkdir(dir, { recursive: true });
     await writeFile(path.join(dir, fileName), new Uint8Array(parsed.buffer));
     return `/api/forms/${formId}/schema-assets/${fileName}`;
+  };
+
+  const [fieldsResult, themeResult] = await Promise.allSettled([
+    needsFields ? replaceEmbeddedFieldImages(fields, uploadOne) : Promise.resolve(fields),
+    needsTheme ? replaceEmbeddedThemeImages(theme, uploadOne) : Promise.resolve(theme),
+  ]);
+
+  if (fieldsResult.status === "rejected") {
+    console.error("Schema image local-save failed:", fieldsResult.reason);
+  }
+  if (themeResult.status === "rejected") {
+    console.error("Theme image local-save failed:", themeResult.reason);
   }
 
-  const updated: FormField[] = [];
-  for (const field of fields) {
-    if (field.type === "dropdown") {
-      const options = [];
-      for (const raw of field.options) {
-        const opt = normalizeDropdownOption(raw);
-        options.push(
-          opt.imageDataUrl?.startsWith("data:")
-            ? { ...opt, imageDataUrl: await saveOne(opt.imageDataUrl) }
-            : opt,
-        );
-      }
-      updated.push({ ...field, options });
-    } else if (field.type === "button" && field.buttonImageDataUrl?.startsWith("data:")) {
-      updated.push({
-        ...field,
-        buttonImageDataUrl: await saveOne(field.buttonImageDataUrl),
-      } as ButtonField);
-    } else {
-      updated.push(field);
-    }
-  }
-  return updated;
+  return {
+    fields: fieldsResult.status === "fulfilled" ? fieldsResult.value : fields,
+    theme: themeResult.status === "fulfilled" ? themeResult.value : theme,
+  };
 }
 
 export type LocalAnswerValue =
@@ -203,6 +177,23 @@ async function saveFileLocally(
   return `${formId}/${submissionId}/${fileName}`;
 }
 
+// Shared by top-level Photo/Document fields and Repeating-list/Button
+// photo columns — same "read the uploaded File, save it, describe it"
+// logic regardless of which kind of field the key belongs to.
+async function extractFileAnswer(
+  formData: FormData,
+  key: string,
+  formId: string,
+  submissionId: string,
+): Promise<LocalAnswerValue> {
+  const file = formData.get(key);
+  if (!(file instanceof File) || file.size === 0) return { kind: "text", text: "" };
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const fileName = sanitizeFileName(file.name);
+  const storedPath = await saveFileLocally(formId, submissionId, fileName, buffer);
+  return { kind: "file", storedPath, originalName: file.name };
+}
+
 async function extractTopLevelValue(
   field: FormField,
   formData: FormData,
@@ -211,16 +202,8 @@ async function extractTopLevelValue(
 ): Promise<LocalAnswerValue> {
   switch (field.type) {
     case "photo":
-    case "document": {
-      const file = formData.get(field.id);
-      if (!(file instanceof File) || file.size === 0) {
-        return { kind: "text", text: "" };
-      }
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const fileName = sanitizeName(file.name);
-      const storedPath = await saveFileLocally(formId, submissionId, fileName, buffer);
-      return { kind: "file", storedPath, originalName: file.name };
-    }
+    case "document":
+      return extractFileAnswer(formData, field.id, formId, submissionId);
     case "signature": {
       const raw = formData.get(field.id);
       const dataUrl = typeof raw === "string" ? raw : "";
@@ -266,12 +249,7 @@ async function extractPlayerColumnValue(
   submissionId: string,
 ): Promise<LocalAnswerValue> {
   if (column.type === "photo") {
-    const file = formData.get(key);
-    if (!(file instanceof File) || file.size === 0) return { kind: "text", text: "" };
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const fileName = sanitizeName(file.name);
-    const storedPath = await saveFileLocally(formId, submissionId, fileName, buffer);
-    return { kind: "file", storedPath, originalName: file.name };
+    return extractFileAnswer(formData, key, formId, submissionId);
   }
   const value = formData.get(key);
   return { kind: "text", text: typeof value === "string" ? value : "" };
@@ -296,7 +274,7 @@ export async function recordSubmissionToLocal({
 
   const playerListFields = fields.filter(isPlayerListField);
   const buttonFields = fields.filter(isButtonField);
-  const dataFields = fields.filter((f) => !NON_DATA_TYPES.has(f.type));
+  const dataFields = fields.filter((f) => isDataField(f.type));
 
   // Same integrity rule as the Google path: Computed values are always
   // recalculated server-side from the submitted Number/Rating values,

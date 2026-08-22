@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { recordSubmission } from "@/lib/google";
 import { recordSubmissionToLocal } from "@/lib/local-storage";
 import { verifyAccessToken, accessCookieName } from "@/lib/access-code";
-import { CLOSED_MESSAGE } from "@/types/closing";
+import { CLOSED_MESSAGE, isFormClosed } from "@/types/closing";
 import type { FormField } from "@/types/form-builder";
 import type { SubmitState } from "@/types/submission";
 
@@ -34,12 +34,7 @@ export async function submitFormAction(
   // Re-checked here (not just on the page render) since a visitor could
   // have had the form open before a deadline passed, or before the admin
   // manually closed it, and still try to submit afterward.
-  const isClosed =
-    form.closeMode === "manual" ||
-    (form.closeMode === "deadline" &&
-      !!form.closesAt &&
-      new Date() > form.closesAt);
-  if (isClosed) {
+  if (isFormClosed(form)) {
     return {
       status: "error",
       message: CLOSED_MESSAGE,

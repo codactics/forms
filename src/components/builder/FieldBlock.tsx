@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
@@ -12,6 +12,8 @@ import {
   FileText,
   PenTool,
   Star,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   getFieldTypeDef,
@@ -30,6 +32,7 @@ import { wouldCreateCycle } from "@/lib/computed";
 import { Switch } from "./Switch";
 import { OptionListEditor } from "./OptionListEditor";
 import { DropdownOptionEditor } from "./DropdownOptionEditor";
+import { SingleImageUploader } from "./SingleImageUploader";
 import { MarkdownContent } from "@/components/shared/MarkdownContent";
 
 export function FieldBlock({
@@ -63,10 +66,14 @@ export function FieldBlock({
       ref={setNodeRef}
       style={style}
       onClick={onSelect}
-      className={`w-full rounded-xl border bg-white p-4 shadow-sm transition-colors ${
-        selected
-          ? "border-royal-500 ring-2 ring-royal-500/20"
-          : "border-royal-100 hover:border-royal-300"
+      className={`w-full rounded-xl border p-4 shadow-sm transition-colors ${
+        field.hidden ? "bg-royal-50/40" : "bg-white"
+      } ${
+        field.hidden
+          ? `border-red-400 ${selected ? "ring-2 ring-red-400/20" : "hover:border-red-500"}`
+          : selected
+            ? "border-royal-500 ring-2 ring-royal-500/20"
+            : "border-royal-100 hover:border-royal-300"
       } ${isDragging ? "z-10 opacity-60" : ""}`}
     >
       <div className="mb-2 flex items-center gap-2">
@@ -89,12 +96,37 @@ export function FieldBlock({
           <>
             {field.type !== "static-text" &&
               field.type !== "section-break" &&
-              field.type !== "computed" && (
+              field.type !== "computed" &&
+              field.type !== "image-display" && (
               <Switch
                 checked={field.required}
                 onChange={(required) => onChange({ ...field, required })}
                 label="Required"
               />
+            )}
+            {field.type !== "static-text" && field.type !== "computed" && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange({ ...field, hidden: !field.hidden });
+                }}
+                className={`rounded-md p-1.5 hover:bg-royal-50 ${
+                  field.hidden ? "text-red-600" : "text-royal-400 hover:text-royal-600"
+                }`}
+                aria-label={field.hidden ? "Show to respondents" : "Hide from respondents"}
+                title={
+                  field.type === "section-break"
+                    ? field.hidden
+                      ? "Section hidden — this section and everything in it is skipped. Click to show again"
+                      : "Hide this entire section (and everything in it) from respondents"
+                    : field.hidden
+                      ? "Hidden from respondents — click to show again"
+                      : "Keep this question but hide it from respondents"
+                }
+              >
+                {field.hidden ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
             )}
             <button
               type="button"
@@ -111,7 +143,7 @@ export function FieldBlock({
         )}
       </div>
 
-      {field.type !== "static-text" && (
+      {field.type !== "static-text" && field.type !== "image-display" && (
         <input
           value={field.label}
           onChange={(e) => onChange({ ...field, label: e.target.value })}
@@ -122,9 +154,19 @@ export function FieldBlock({
           className="w-full border-b border-transparent bg-transparent pb-1 text-base font-medium text-royal-950 focus:border-royal-400 focus:outline-none"
         />
       )}
-      {!selected && field.required && (
-        <span className="mt-1 inline-block text-xs font-medium text-royal-400">
-          Required
+      {!selected && (field.required || field.hidden) && (
+        <span className="mt-1 flex items-center gap-2">
+          {field.hidden && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-red-600">
+              <EyeOff size={11} />
+              {field.type === "section-break"
+                ? "Section hidden — nothing in it will show"
+                : "Hidden from respondents"}
+            </span>
+          )}
+          {field.required && (
+            <span className="text-xs font-medium text-royal-400">Required</span>
+          )}
         </span>
       )}
 
@@ -140,7 +182,8 @@ export function FieldBlock({
       {selected &&
         field.type !== "computed" &&
         field.type !== "player-list" &&
-        field.type !== "static-text" && (
+        field.type !== "static-text" &&
+        field.type !== "image-display" && (
           <PopupSettings field={field} onChange={onChange} />
         )}
     </div>
@@ -694,18 +737,76 @@ function FieldPreview({
               </button>
             )}
           </label>
-          {field.content && (
-            <div className="rounded-lg border border-royal-100 bg-royal-50/40 p-3">
-              <span className="mb-2 block text-[11px] font-medium text-royal-400">
+          <SingleImageUploader
+            imageDataUrl={field.imageDataUrl}
+            onChange={(imageDataUrl) => onChange({ ...field, imageDataUrl })}
+            label="Add an image (optional)"
+          />
+          {(field.content || field.imageDataUrl) && (
+            <div className="flex flex-col gap-2 rounded-lg border border-royal-100 bg-royal-50/40 p-3">
+              <span className="block text-[11px] font-medium text-royal-400">
                 Preview
               </span>
-              <MarkdownContent content={field.content} color={field.color} />
+              {field.imageDataUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={field.imageDataUrl}
+                  alt=""
+                  className="max-h-48 w-full rounded-md object-contain"
+                />
+              )}
+              {field.content && (
+                <MarkdownContent content={field.content} color={field.color} />
+              )}
             </div>
           )}
         </div>
       ) : (
-        <div className="rounded-lg bg-royal-50/60 p-3">
-          <MarkdownContent content={field.content || "Write your message here."} />
+        <div className="flex flex-col gap-2 rounded-lg bg-royal-50/60 p-3">
+          {field.imageDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={field.imageDataUrl}
+              alt=""
+              className="max-h-48 w-full rounded-md object-contain"
+            />
+          )}
+          <MarkdownContent
+            content={field.content || (field.imageDataUrl ? "" : "Write your message here.")}
+          />
+        </div>
+      );
+    case "image-display":
+      return editable ? (
+        <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
+          <SingleImageUploader
+            imageDataUrl={field.imageDataUrl}
+            onChange={(imageDataUrl) => onChange({ ...field, imageDataUrl })}
+            label="Upload image"
+          />
+          <input
+            value={field.caption ?? ""}
+            onChange={(e) => onChange({ ...field, caption: e.target.value })}
+            placeholder="Caption shown under the image (optional)"
+            className="w-full rounded-md border border-royal-200 px-3 py-2 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
+        </div>
+      ) : field.imageDataUrl ? (
+        <div className="flex flex-col items-center gap-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={field.imageDataUrl}
+            alt={field.caption ?? ""}
+            className="max-h-48 w-full rounded-md object-contain"
+          />
+          {field.caption && (
+            <p className="text-xs text-royal-500">{field.caption}</p>
+          )}
+        </div>
+      ) : (
+        <div className="flex w-full items-center gap-2 rounded-md border border-dashed border-royal-200 bg-royal-50/40 px-3 py-4 text-royal-400">
+          <Image size={16} />
+          <span className="text-sm">No image uploaded yet</span>
         </div>
       );
   }
@@ -1040,8 +1141,6 @@ function PlayerListSettings({
   );
 }
 
-const MAX_BUTTON_IMAGE_BYTES = 5 * 1024 * 1024;
-
 function ButtonFieldSettings({
   field,
   onChange,
@@ -1049,32 +1148,6 @@ function ButtonFieldSettings({
   field: Extract<FormField, { type: "button" }>;
   onChange: (field: FormField) => void;
 }) {
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  function handleImageUpload(file: File) {
-    setError(null);
-    if (file.size > MAX_BUTTON_IMAGE_BYTES) {
-      setError("File is bigger than 5MB and can't be uploaded.");
-      return;
-    }
-    const reader = new FileReader();
-    setProgress(0);
-    reader.onprogress = (e) => {
-      if (e.lengthComputable) setProgress(Math.round((e.loaded / e.total) * 100));
-    };
-    reader.onload = () => {
-      onChange({ ...field, buttonImageDataUrl: reader.result as string });
-      setProgress(null);
-    };
-    reader.onerror = () => {
-      setError("Couldn't read that file. Please try again.");
-      setProgress(null);
-    };
-    reader.readAsDataURL(file);
-  }
-
   function updateSubField(id: string, updates: Partial<PlayerListColumn>) {
     onChange({
       ...field,
@@ -1131,61 +1204,18 @@ function ButtonFieldSettings({
           className="w-full rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
         />
       ) : (
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-dashed border-royal-300 bg-white text-royal-400 hover:bg-royal-50"
-              aria-label="Upload button image"
-            >
-              {field.buttonImageDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={field.buttonImageDataUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <Image size={18} />
-              )}
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleImageUpload(file);
-                e.target.value = "";
-              }}
-            />
-            <input
-              value={field.buttonText}
-              onChange={(e) => onChange({ ...field, buttonText: e.target.value })}
-              placeholder="Caption shown under the image (optional)"
-              className="min-w-0 flex-1 rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
-            />
-            {field.buttonImageDataUrl && (
-              <button
-                type="button"
-                onClick={() => onChange({ ...field, buttonImageDataUrl: undefined })}
-                className="shrink-0 text-[10px] font-medium text-royal-400 hover:text-red-600"
-              >
-                Remove image
-              </button>
-            )}
-          </div>
-          {progress !== null && (
-            <div className="h-1.5 w-40 overflow-hidden rounded-full bg-royal-100">
-              <div
-                className="h-full rounded-full bg-royal-500 transition-all"
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          )}
-          {error && <p className="text-[11px] font-medium text-red-600">{error}</p>}
+        <div className="flex flex-col gap-2">
+          <SingleImageUploader
+            imageDataUrl={field.buttonImageDataUrl}
+            onChange={(imageDataUrl) => onChange({ ...field, buttonImageDataUrl: imageDataUrl })}
+            label="Upload button image"
+          />
+          <input
+            value={field.buttonText}
+            onChange={(e) => onChange({ ...field, buttonText: e.target.value })}
+            placeholder="Caption shown under the image (optional)"
+            className="w-full rounded-md border border-royal-200 bg-white px-2.5 py-1.5 text-sm text-royal-950 focus:border-royal-500 focus:outline-none"
+          />
         </div>
       )}
 

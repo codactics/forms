@@ -18,3 +18,17 @@ export const DEFAULT_CLOSING: FormClosing = {
 
 export const CLOSED_MESSAGE =
   "Form is not taking any more data right now. Contact the organizer.";
+
+// Shared by the public page (to decide what to render) and the submit
+// action (to re-check server-side, since a visitor could have had the form
+// open before a deadline passed) — kept in one place so the two can't
+// silently drift on what "closed" means.
+export function isFormClosed(form: {
+  closeMode: string | null;
+  closesAt: Date | null;
+}): boolean {
+  return (
+    form.closeMode === "manual" ||
+    (form.closeMode === "deadline" && !!form.closesAt && new Date() > form.closesAt)
+  );
+}

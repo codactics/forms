@@ -56,8 +56,8 @@ export default async function Home() {
           <h1 className="text-3xl font-semibold tracking-tight text-royal-950 sm:text-4xl">
             Codactis Form Builder
           </h1>
-          <p className="max-w-md text-royal-700">
-            Build and publish tournament registration forms in minutes.
+          <p className="whitespace-nowrap text-sm font-bold text-royal-600">
+            Build and publish any forms in minutes and with few clicks.
           </p>
         </div>
 

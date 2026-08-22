@@ -2,8 +2,12 @@
 
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { publishFormToGoogle, syncSheetColumns, uploadSchemaImages } from "@/lib/google";
-import { saveSchemaImagesLocally } from "@/lib/local-storage";
+import {
+  publishFormToGoogle,
+  syncSheetColumns,
+  uploadFormImagesToDrive,
+} from "@/lib/google";
+import { saveFormImagesLocally } from "@/lib/local-storage";
 import { slugify } from "@/lib/slug";
 import { generateUniqueTitle } from "@/lib/form-naming";
 import { MAX_DRAFTS_PER_ADMIN, MAX_PUBLISHED_PER_ADMIN } from "@/lib/form-limits";
@@ -208,6 +212,7 @@ export async function updateLiveForm(
   // locally-stored submissions are each a self-contained JSON row, so
   // there's nothing equivalent to sync there.
   let fields = input.fields;
+  let theme = input.theme;
   if (existing.storageProvider === "google" && existing.googleSheetId) {
     const admin = await prisma.admin.findUnique({
       where: { id: session.user.id },
@@ -228,24 +233,17 @@ export async function updateLiveForm(
       console.error("Sheet column sync failed:", err);
     }
     if (existing.googleDriveFolderId) {
-      try {
-        fields = await uploadSchemaImages({
-          refreshToken: admin.googleRefreshToken,
-          formFolderId: existing.googleDriveFolderId,
-          fields: input.fields,
-        });
-      } catch (err) {
-        // Same reasoning as the sheet sync above — keep whatever base64
-        // image was already there rather than blocking the save.
-        console.error("Schema image upload failed:", err);
-      }
+      // uploadFormImagesToDrive already logs and degrades independently
+      // per side (schema vs theme) rather than blocking the save.
+      ({ fields, theme } = await uploadFormImagesToDrive({
+        refreshToken: admin.googleRefreshToken,
+        formFolderId: existing.googleDriveFolderId,
+        fields: input.fields,
+        theme: input.theme,
+      }));
     }
   } else if (existing.storageProvider === "local") {
-    try {
-      fields = await saveSchemaImagesLocally(formId, input.fields);
-    } catch (err) {
-      console.error("Schema image local-save failed:", err);
-    }
+    ({ fields, theme } = await saveFormImagesLocally(formId, input.fields, input.theme));
   }
 
   await prisma.form.update({
@@ -253,7 +251,7 @@ export async function updateLiveForm(
     data: {
       title,
       schema: JSON.stringify(fields),
-      theme: JSON.stringify(input.theme),
+      theme: JSON.stringify(theme),
       ...closingToDbFields(input.closing),
     },
   });
@@ -366,18 +364,18 @@ export async function saveAccessCodes(
     prisma.formAccessCode.deleteMany({
       where: { formId, username: { notIn: trimmed.map((c) => c.username) } },
     }),
-    ...trimmed.map((c) =>
-      c.password
-        ? prisma.formAccessCode.upsert({
-            where: { formId_username: { formId, username: c.username } },
-            create: { formId, username: c.username, passwordHash: hashPassword(c.password) },
-            update: { passwordHash: hashPassword(c.password) },
-          })
-        : prisma.formAccessCode.update({
-            where: { formId_username: { formId, username: c.username } },
-            data: {},
-          }),
-    ),
+    // An entry with no new password is an existing, unchanged row (already
+    // validated above) — nothing to write for it, so it's just left out
+    // rather than issued as a no-op update.
+    ...trimmed
+      .filter((c) => c.password)
+      .map((c) =>
+        prisma.formAccessCode.upsert({
+          where: { formId_username: { formId, username: c.username } },
+          create: { formId, username: c.username, passwordHash: hashPassword(c.password!) },
+          update: { passwordHash: hashPassword(c.password!) },
+        }),
+      ),
     prisma.form.update({ where: { id: formId }, data: { requireAccessCode } }),
   ]);
 
@@ -486,18 +484,17 @@ export async function publishForm(input: {
     data.googleSheetId = googleResult.spreadsheetId;
     data.googleDriveFolderId = googleResult.formFolderId;
 
-    try {
-      const fieldsWithUploadedImages = await uploadSchemaImages({
-        refreshToken: admin.googleRefreshToken!,
-        formFolderId: googleResult.formFolderId,
-        fields: input.fields,
-      });
-      data.schema = JSON.stringify(fieldsWithUploadedImages);
-    } catch (err) {
-      // Keep the base64-embedded schema rather than failing the whole
-      // publish over an image upload hiccup.
-      console.error("Schema image upload failed:", err);
-    }
+    // Keeps the base64-embedded schema/theme rather than failing the whole
+    // publish over an image upload hiccup — uploadFormImagesToDrive logs
+    // and degrades independently per side already.
+    const uploaded = await uploadFormImagesToDrive({
+      refreshToken: admin.googleRefreshToken!,
+      formFolderId: googleResult.formFolderId,
+      fields: input.fields,
+      theme: input.theme,
+    });
+    data.schema = JSON.stringify(uploaded.fields);
+    data.theme = JSON.stringify(uploaded.theme);
   } else {
     data.storageProvider = "local";
   }
@@ -515,15 +512,11 @@ export async function publishForm(input: {
   // nowhere to save files under) until the create above runs, so this is a
   // follow-up pass rather than something foldable into `data` up front.
   if (input.storage === "local") {
-    try {
-      const fieldsWithLocalImages = await saveSchemaImagesLocally(formId, input.fields);
-      await prisma.form.update({
-        where: { id: formId },
-        data: { schema: JSON.stringify(fieldsWithLocalImages) },
-      });
-    } catch (err) {
-      console.error("Schema image local-save failed:", err);
-    }
+    const { fields, theme } = await saveFormImagesLocally(formId, input.fields, input.theme);
+    await prisma.form.update({
+      where: { id: formId },
+      data: { schema: JSON.stringify(fields), theme: JSON.stringify(theme) },
+    });
   }
 
   return { ok: true, slug };

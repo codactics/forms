@@ -89,22 +89,29 @@ export function utcInstantToLocal(
 // DST rules the way the fixed-offset picker deliberately avoids.
 const BERLIN_TZ = "Europe/Berlin";
 
-export function formatBerlinDate(date: Date): string {
+// Built once and reused — a formatter's own options never change between
+// calls, so there's no reason to reconstruct one per date (export routes
+// and the Responses page each format one of these per submission row).
+const berlinDateFormatter = new Intl.DateTimeFormat("en-CA", {
   // en-CA gives YYYY-MM-DD ordering — unambiguous, unlike DD/MM vs MM/DD.
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: BERLIN_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  timeZone: BERLIN_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+
+const berlinTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: BERLIN_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+});
+
+export function formatBerlinDate(date: Date): string {
+  return berlinDateFormatter.format(date);
 }
 
 export function formatBerlinTime(date: Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: BERLIN_TZ,
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
+  return berlinTimeFormatter.format(date);
 }

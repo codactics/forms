@@ -17,7 +17,8 @@ export type FieldType =
   | "section-break"
   | "rating"
   | "computed"
-  | "button";
+  | "button"
+  | "image-display";
 
 export interface FieldPopup {
   enabled: boolean;
@@ -37,6 +38,11 @@ interface FieldBase {
   // the respondent advances into this section via Next. See FieldPopup's
   // "repeat" for whether that's once per session or every time.
   popup?: FieldPopup;
+  // Keeps the field in the form's definition (position, settings, any
+  // prior recorded answers) while removing it from what respondents see —
+  // for pausing collection on a question without losing its configuration
+  // the way deleting it would. Admin-only; never rendered on the public form.
+  hidden?: boolean;
 }
 
 export interface ShortTextField extends FieldBase {
@@ -112,6 +118,16 @@ export interface StaticTextField extends FieldBase {
   type: "static-text";
   content: string;
   color?: string;
+  imageDataUrl?: string;
+}
+
+// A pure image block for the public form — banners, flyers, sponsor logos —
+// with no text editing (that's what Message is for) and nothing for the
+// respondent to fill in.
+export interface ImageDisplayField extends FieldBase {
+  type: "image-display";
+  imageDataUrl?: string;
+  caption?: string;
 }
 
 export interface EmailField extends FieldBase {
@@ -205,4 +221,5 @@ export type FormField =
   | SectionBreakField
   | RatingField
   | ComputedField
-  | ButtonField;
+  | ButtonField
+  | ImageDisplayField;
